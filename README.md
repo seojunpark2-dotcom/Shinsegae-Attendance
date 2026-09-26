@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast6 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast6.apk)
-- [빠른 실행 ZIP v1.1.0-fast6 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast6.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast7 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast7.apk)
+- [빠른 실행 ZIP v1.1.0-fast7 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast7.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast6`는 상세 페이지에서 아주 짧은 스크롤을 한 번만 실행합니다. 작업 후 신세계 앱에서 나가며, 실행 전 화면이 켜져 있었다면 당시 사용하던 앱을 다시 앞으로 가져오고 화면이 꺼져 있었다면 홈으로 나온 뒤 다시 화면을 끕니다. 프라이버시 커튼은 화면이 꺼진 상태에서 시작한 실행에만 표시됩니다.
+`v1.1.0-fast7`은 예약 시각을 선택하면 다음 실행을 즉시 다시 예약합니다. 예약 시각에는 `오늘의 출석체크를 아직 완료하지 않았어요!` 알림을 표시하고 자동 출석을 시작하며, 앱의 테스트 버튼 명칭은 `수동 실행`으로 변경했습니다. 작업 후에는 이전 앱과 원래 화면 전원 상태를 복원합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
