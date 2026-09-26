@@ -4,7 +4,10 @@
 
 ## 다운로드
 
-[신세계 자동 출석 APK v1.1.0](releases/shinsegae-auto-attendance-v1.1.0.apk)
+- [APK v1.1.0 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0.apk)
+- [ZIP v1.1.0 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0.zip) — 브라우저가 APK를 차단할 때 사용
+
+저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
 ## 설정
 
