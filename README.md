@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [APK v1.1.0 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0.apk)
-- [ZIP v1.1.0 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast.apk)
+- [빠른 실행 ZIP v1.1.0-fast 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -28,5 +28,7 @@
 프라이버시 커튼을 켜면 자동화 중 화면을 검게 가리고 밝기를 낮추며, 완료 후 화면을 다시 끕니다. Android 내부에서는 신세계백화점 앱이 실제로 화면에 열린 상태로 조작됩니다.
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
+
+`v1.1.0-fast`는 고정 대기시간을 줄이고 화면이 준비되는 즉시 다음 단계로 이동하도록 최적화한 버전입니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
