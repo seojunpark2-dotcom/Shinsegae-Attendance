@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast16 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast16.apk)
-- [빠른 실행 ZIP v1.1.0-fast16 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast16.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast17 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast17.apk)
+- [빠른 실행 ZIP v1.1.0-fast17 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast17.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast16`은 프라이버시 커튼 설정과 관계없이 꺼진 화면을 확실히 켤 수 있도록 화면 켜기 권한과 전체 화면 wake lock을 사용합니다. 잠금 해제 후 신세계 앱이 전면에 나타나지 않으면 두 번 재실행하고, 실패한 실행이 20초 이상 멈춘 경우 `수동 실행`으로 새 실행을 시작할 수 있습니다.
+`v1.1.0-fast17`은 화면이 꺼져 있으면 잠금화면 위에 투명 화면을 열어 화면을 켜고 Android의 비보안 잠금 해제 API를 먼저 요청합니다. 기기 제조사에서 요청을 처리하지 않을 때만 기존 수직 방식 대신 길고 대각선인 드래그를 실행한 뒤 자동 출석을 시작합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
