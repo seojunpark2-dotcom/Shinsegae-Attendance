@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast14 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast14.apk)
-- [빠른 실행 ZIP v1.1.0-fast14 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast14.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast15 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast15.apk)
+- [빠른 실행 ZIP v1.1.0-fast15 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast15.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast14`는 기기의 보안 잠금 판정값만으로 실행을 미리 중단하지 않습니다. 잠금화면을 위로 한 번 드래그한 뒤 실제 해제 여부를 확인하고, 해제됐을 때 자동 출석을 시작합니다. PIN·패턴·비밀번호 화면처럼 드래그 후에도 잠금이 유지되면 중단합니다.
+`v1.1.0-fast15`는 화면을 깨운 직후의 잠금 애니메이션을 고려해 간격을 둔 위쪽 드래그를 두 번 수행합니다. 잠금 상태를 즉시 판정하지 않고 신세계 앱 실행까지 시도한 뒤 6초 후 실제 활성 화면을 함께 확인하므로, 단순 드래그 잠금의 늦은 상태 변경을 실패로 오인하지 않습니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
