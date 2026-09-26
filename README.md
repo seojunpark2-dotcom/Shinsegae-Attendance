@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast3 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast3.apk)
-- [빠른 실행 ZIP v1.1.0-fast3 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast3.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast4 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast4.apk)
+- [빠른 실행 ZIP v1.1.0-fast4 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast4.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast3`는 상세 페이지에서 아주 짧은 스크롤을 한 번만 실행한 뒤 화면을 고정하여 `리워드 받으러 가기` 버튼을 탐색합니다.
+`v1.1.0-fast4`는 상세 페이지에서 아주 짧은 스크롤을 한 번만 실행합니다. 작업 후 신세계 앱을 첫 화면으로 돌리고, 실행 전 화면이 꺼져 있었다면 다시 끄며 원래 켜져 있었다면 켜진 상태를 유지합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
