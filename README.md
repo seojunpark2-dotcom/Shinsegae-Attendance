@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast9 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast9.apk)
-- [빠른 실행 ZIP v1.1.0-fast9 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast9.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast10 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast10.apk)
+- [빠른 실행 ZIP v1.1.0-fast10 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast10.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast9`는 자동 출석과 출석 알림을 완전히 분리합니다. 자동 출석을 꺼도 `출석 알림`이 켜져 있으면 예약 시각에 `오늘의 출석체크를 아직 완료하지 않았어요!` 알림이 표시됩니다. 반대로 알림을 꺼도 자동 출석은 그대로 실행되며, 둘 다 끄면 예약 알람이 취소됩니다.
+`v1.1.0-fast10`은 화면이 켜진 상태에서 자동 출석이 시작되면 마지막으로 사용 중이던 일반 앱을 기억합니다. 출석 후 신세계 앱에서 나가 인스타그램 등 이전 앱의 기존 작업을 다시 앞으로 가져옵니다. 실행 전 화면이 꺼져 있었다면 이전과 같이 화면을 다시 끕니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
