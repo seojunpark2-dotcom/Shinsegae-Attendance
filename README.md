@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast12 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast12.apk)
-- [빠른 실행 ZIP v1.1.0-fast12 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast12.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast13 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast13.apk)
+- [빠른 실행 ZIP v1.1.0-fast13 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast13.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast12`는 Android의 앱 가시성 제한과 관계없이 이전 앱을 다시 실행할 수 있는 방식으로 복원 처리를 변경했습니다. 출석 후 신세계 앱에서 나가 인스타그램 등 실제 이전 앱의 기존 작업을 앞으로 가져오며, 복원이 불가능할 때만 홈 화면으로 이동합니다.
+`v1.1.0-fast13`은 화면이 꺼진 상태에서 비보안 드래그 잠금화면이 나타나면 화면을 켠 뒤 위로 한 번 밀어 잠금을 해제하고 자동 출석을 시작합니다. 패턴·PIN·비밀번호처럼 Android가 보안 잠금으로 판단하는 잠금은 우회하지 않습니다. 출석 후에는 원래 화면 전원 상태를 복원합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
