@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast19 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast19.apk)
-- [빠른 실행 ZIP v1.1.0-fast19 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast19.zip) — 브라우저가 APK를 차단할 때 사용
+- [빠른 실행 APK v1.1.0-fast20 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast20.apk)
+- [빠른 실행 ZIP v1.1.0-fast20 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast20.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -29,6 +29,6 @@
 
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
-`v1.1.0-fast19`는 최근 앱에서 `신세계백화점`, `신세계` 또는 `SHINSEGAE` 제목이 확인된 카드만 제거합니다. 대상이 보이지 않으면 좌우로 탐색하며, 끝까지 정확히 식별하지 못하면 인스타그램 등 다른 앱을 보호하기 위해 아무 카드도 제거하지 않습니다.
+`v1.1.0-fast20`은 최근 앱 카드 제목이 정확히 `신세계`와 일치할 때만 제거합니다. 부분 일치나 `신세계 자동 출석` 카드는 제외하며, 제거 동작이 없을 때도 정확히 확인된 `신세계` 제목의 가로 중심에서만 위쪽 제스처를 실행합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
