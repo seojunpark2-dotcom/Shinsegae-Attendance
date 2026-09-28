@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">신세계 자동 출석</string>
+    <string name="accessibility_description">예약 시각에 신세계백화점 앱의 리워드 캘린더 화면만 탐색하여 출석을 실행합니다. 비밀번호와 인증번호를 읽거나 저장하지 않습니다.</string>
+</resources>
+
