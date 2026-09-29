@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [APK v1.1.23 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.23.apk)
-- [ZIP v1.1.23 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.23.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v1.1.24 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.24.apk)
+- [ZIP v1.1.24 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.24.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -39,6 +39,8 @@
 
 `v1.1.2`는 신세계 앱의 "로그인이 필요한 서비스" 팝업이 보이면 **예**를 누르고, 팝업이 닫혀 로그인 입력 화면이 나타난 다음 저장된 계정으로 로그인을 시도합니다.
 
-현재 기능의 표시 버전은 초기 `v1.1.0` 이후 23차례의 수정 이력에 맞춘 `v1.1.23`입니다. 앞으로 기능을 수정해 APK를 배포할 때마다 마지막 숫자를 1씩 올립니다. APK 내부 빌드 번호는 Android 업데이트 설치를 위해 별도로 증가시킵니다.
+현재 기능의 표시 버전은 초기 `v1.1.0` 이후 24차례의 수정 이력에 맞춘 `v1.1.24`입니다. 앞으로 기능을 수정해 APK를 배포할 때마다 마지막 숫자를 1씩 올립니다. APK 내부 빌드 번호는 Android 업데이트 설치를 위해 별도로 증가시킵니다.
+
+`v1.1.24`는 아이디·비밀번호 입력 후 갱신된 로그인 화면에서 버튼을 다시 찾아 누릅니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.

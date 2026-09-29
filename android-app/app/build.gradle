@@ -10,8 +10,8 @@ android {
         applicationId 'com.codex.shinsegaeattendance'
         minSdk 26
         targetSdk 35
-        versionCode 27
-        versionName '1.1.23'
+        versionCode 28
+        versionName '1.1.24'
     }
 
     buildTypes {

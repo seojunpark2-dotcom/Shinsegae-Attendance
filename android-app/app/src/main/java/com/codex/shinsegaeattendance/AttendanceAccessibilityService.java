@@ -21,6 +21,7 @@ import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -59,8 +60,11 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int stage;
     private int loginWaitAttempts;
     private boolean loginPromptClicked;
+    private boolean loginFieldsFilled;
     private boolean loginSubmitted;
     private boolean loginAttemptedThisRun;
+    private boolean loginKeyboardDismissed;
+    private int loginPasswordCenterY;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -189,8 +193,11 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         stage = STAGE_HOME;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
+        loginFieldsFilled = false;
         loginSubmitted = false;
         loginAttemptedThisRun = false;
+        loginKeyboardDismissed = false;
+        loginPasswordCenterY = -1;
         stageReadyAt = 0L;
 
         if (swipeKeyguardLocked) {
@@ -282,6 +289,13 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void processScreen() {
         if (!running) return;
+        if (stage == STAGE_LOGIN && loginFieldsFilled
+                && !loginKeyboardDismissed && isInputMethodVisible()) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            loginKeyboardDismissed = true;
+            handler.postDelayed(processRunnable, 500L);
+            return;
+        }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null || !TARGET_PACKAGE.contentEquals(root.getPackageName())) {
             foregroundLaunchAttempts++;
@@ -416,7 +430,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             stage = STAGE_LOGIN;
             loginWaitAttempts = 0;
             loginPromptClicked = false;
+            loginFieldsFilled = false;
             loginSubmitted = false;
+            loginKeyboardDismissed = false;
         }
 
         if (loginSubmitted) {
@@ -465,6 +481,32 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return true;
         }
 
+        if (loginFieldsFilled) {
+            // Setting the password often rebuilds the WebView. Find the
+            // enabled submit button on the refreshed accessibility tree.
+            AccessibilityNodeInfo loginButton = findLoginButton(root, loginPasswordCenterY);
+            if (loginButton != null) {
+                if (!loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        && !tapLoginButton(loginButton)) {
+                    fail("로그인 버튼을 누르지 못했습니다. 로그인 화면을 확인해주세요.");
+                    return true;
+                }
+                loginFieldsFilled = false;
+                loginSubmitted = true;
+                loginAttemptedThisRun = true;
+                loginWaitAttempts = 0;
+                stageReadyAt = SystemClock.uptimeMillis() + 1300L;
+                handler.postDelayed(processRunnable, 1300L);
+                return true;
+            }
+            if (++loginWaitAttempts > 12) {
+                fail("아이디·비밀번호 입력 후 로그인 버튼을 찾지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
+                return true;
+            }
+            handler.postDelayed(processRunnable, 400L);
+            return true;
+        }
+
         if (form) {
             LoginCredentials.Account account;
             try {
@@ -482,16 +524,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("신세계 앱 로그인 입력칸에 정보를 입력하지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
                 return true;
             }
-            AccessibilityNodeInfo loginButton = findLoginButton(root, fields.password);
-            if (loginButton == null || !loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                fail("신세계 앱 로그인 버튼을 누르지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
-                return true;
-            }
-            loginSubmitted = true;
-            loginAttemptedThisRun = true;
+            Rect passwordBounds = new Rect();
+            fields.password.getBoundsInScreen(passwordBounds);
+            loginPasswordCenterY = passwordBounds.centerY();
+            loginFieldsFilled = true;
+            loginKeyboardDismissed = false;
             loginWaitAttempts = 0;
-            stageReadyAt = SystemClock.uptimeMillis() + 1300L;
-            handler.postDelayed(processRunnable, 1300L);
+            stageReadyAt = SystemClock.uptimeMillis() + 700L;
+            handler.postDelayed(processRunnable, 700L);
             return true;
         }
 
@@ -548,11 +588,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root, AccessibilityNodeInfo passwordField) {
+        Rect passwordBounds = new Rect();
+        if (passwordField != null) passwordField.getBoundsInScreen(passwordBounds);
+        return findLoginButton(root, passwordField == null ? -1 : passwordBounds.centerY());
+    }
+
+    private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root, int minimumY) {
         ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
         queue.add(root);
         Rect bounds = new Rect();
-        Rect passwordBounds = new Rect();
-        if (passwordField != null) passwordField.getBoundsInScreen(passwordBounds);
+        AccessibilityNodeInfo visibleLabel = null;
         while (!queue.isEmpty()) {
             AccessibilityNodeInfo node = queue.removeFirst();
             CharSequence value = node.getText();
@@ -563,10 +608,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 for (int i = 0; i < 3 && candidate != null; i++, candidate = candidate.getParent()) {
                     candidate.getBoundsInScreen(bounds);
                     if (candidate.isClickable() && bounds.height() > 0
-                            && (passwordField == null || bounds.centerY() > passwordBounds.centerY())
+                            && bounds.centerY() > minimumY
                             && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.18f) {
                         return candidate;
                     }
+                }
+                node.getBoundsInScreen(bounds);
+                if (minimumY >= 0 && bounds.height() > 0 && bounds.width() > 0
+                        && bounds.centerY() > minimumY
+                        && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.18f) {
+                    visibleLabel = node;
                 }
             }
             for (int i = 0; i < node.getChildCount(); i++) {
@@ -574,7 +625,26 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 if (child != null) queue.add(child);
             }
         }
-        return null;
+        return visibleLabel;
+    }
+
+    private boolean tapLoginButton(AccessibilityNodeInfo node) {
+        Rect bounds = new Rect();
+        node.getBoundsInScreen(bounds);
+        if (!node.isVisibleToUser() || bounds.isEmpty()) return false;
+        Path path = new Path();
+        path.moveTo(bounds.centerX(), bounds.centerY());
+        GestureDescription.StrokeDescription stroke = new GestureDescription.StrokeDescription(path, 0, 100L);
+        return dispatchGesture(new GestureDescription.Builder().addStroke(stroke).build(), null, null);
+    }
+
+    private boolean isInputMethodVisible() {
+        List<AccessibilityWindowInfo> windows = getWindows();
+        if (windows == null) return false;
+        for (AccessibilityWindowInfo window : windows) {
+            if (window.getType() == AccessibilityWindowInfo.TYPE_INPUT_METHOD) return true;
+        }
+        return false;
     }
 
     private boolean setNodeText(AccessibilityNodeInfo node, String value) {
