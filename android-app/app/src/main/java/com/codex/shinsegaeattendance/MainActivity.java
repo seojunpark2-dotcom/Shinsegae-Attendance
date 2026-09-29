@@ -12,10 +12,13 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.InputFilter;
+import android.text.InputType;
 import android.text.format.DateFormat;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -64,7 +67,7 @@ public class MainActivity extends Activity {
 
         TextView title = label("신세계 자동 출석", 28, true);
         root.addView(title);
-        TextView intro = label("휴대폰에서 매일 리워드 캘린더 출석을 실행합니다. 계정 정보는 저장하지 않습니다.", 16, false);
+        TextView intro = label("휴대폰에서 매일 리워드 캘린더 출석을 실행합니다. 로그인이 필요할 때만 저장한 계정으로 로그인을 시도합니다.", 16, false);
         intro.setPadding(0, dp(12), 0, dp(24));
         root.addView(intro);
 
@@ -124,6 +127,50 @@ public class MainActivity extends Activity {
         });
         root.addView(reminderSwitch, matchWrap());
 
+        TextView loginTitle = label("자동 로그인 계정", 18, true);
+        loginTitle.setPadding(0, dp(18), 0, dp(4));
+        root.addView(loginTitle, matchWrap());
+        EditText username = new EditText(this);
+        username.setHint("신세계 앱 아이디");
+        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        username.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        root.addView(username, matchWrap());
+        EditText password = new EditText(this);
+        password.setHint("신세계 앱 비밀번호");
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        password.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        root.addView(password, matchWrap());
+        Button saveLogin = button("로그인 정보 저장");
+        saveLogin.setOnClickListener(v -> {
+            String enteredUsername = username.getText().toString().trim();
+            String enteredPassword = password.getText().toString();
+            if (enteredUsername.isEmpty() || enteredPassword.isEmpty()) {
+                Toast.makeText(this, "아이디와 비밀번호를 모두 입력해주세요.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                LoginCredentials.save(this, enteredUsername, enteredPassword);
+                username.setText("");
+                password.setText("");
+                Toast.makeText(this, "로그인 정보를 기기에 암호화해 저장했습니다.", Toast.LENGTH_SHORT).show();
+                refresh();
+            } catch (Exception error) {
+                Toast.makeText(this, "로그인 정보를 저장하지 못했습니다.", Toast.LENGTH_LONG).show();
+            }
+        });
+        root.addView(saveLogin, matchWrap());
+        Button clearLogin = button("로그인 정보 삭제");
+        clearLogin.setOnClickListener(v -> {
+            LoginCredentials.clear(this);
+            username.setText("");
+            password.setText("");
+            Toast.makeText(this, "저장된 로그인 정보를 삭제했습니다.", Toast.LENGTH_SHORT).show();
+            refresh();
+        });
+        root.addView(clearLogin, matchWrap());
+        TextView loginNote = label("아이디와 비밀번호는 이 휴대폰에 암호화해 저장합니다. 추가 인증이 필요한 로그인은 직접 완료해야 합니다.", 14, false);
+        root.addView(loginNote, matchWrap());
+
         privacySwitch = new Switch(this);
         privacySwitch.setText("프라이버시 커튼\n화면이 꺼진 상태에서 자동 실행될 때만 검은 화면으로 가립니다.");
         privacySwitch.setTextSize(16);
@@ -167,7 +214,7 @@ public class MainActivity extends Activity {
         statusText.setPadding(0, dp(20), 0, 0);
         root.addView(statusText, matchWrap());
 
-        TextView note = label("필수 조건: 휴대폰 전원 켜짐, 신세계 앱 로그인 유지, 예약 시각에 잠금 해제 상태. PIN·지문·패턴 잠금은 자동으로 우회하지 않습니다.", 14, false);
+        TextView note = label("필수 조건: 휴대폰 전원 켜짐, 예약 시각에 잠금 해제 상태. PIN·지문·패턴 잠금은 자동으로 우회하지 않습니다.", 14, false);
         note.setPadding(0, dp(20), 0, 0);
         root.addView(note, matchWrap());
         ScrollView scroll = new ScrollView(this);
@@ -227,6 +274,7 @@ public class MainActivity extends Activity {
                 "\n접근성: " + (AttendanceAccessibilityService.isEnabled(this) ? "허용됨" : "허용 필요") +
                 "\n정확한 알람: " + (ScheduleManager.canScheduleExact(this) ? "허용됨" : "허용 필요") +
                 "\n출석 알림: " + (reminderEnabled ? "켜짐" : "꺼짐") +
+                "\n자동 로그인 정보: " + (LoginCredentials.isSaved(this) ? "저장됨" : "미설정") +
                 "\n프라이버시 커튼: " + (prefs.getBoolean(ScheduleManager.KEY_PRIVACY_CURTAIN, true) ? "켜짐" : "꺼짐") +
                 "\n마지막 결과: " + lastResultLine
         );

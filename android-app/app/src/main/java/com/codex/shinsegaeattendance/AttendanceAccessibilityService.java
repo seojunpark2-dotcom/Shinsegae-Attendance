@@ -14,6 +14,7 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -25,6 +26,7 @@ import android.view.View;
 import android.view.WindowManager;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 
 public class AttendanceAccessibilityService extends AccessibilityService {
@@ -38,6 +40,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private static final int STAGE_WALLET = 1;
     private static final int STAGE_DETAIL = 2;
     private static final int STAGE_RESULT = 3;
+    private static final int STAGE_LOGIN = 4;
     private static AttendanceAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
@@ -54,6 +57,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int foregroundLaunchAttempts;
     private int recentScanAttempts;
     private int stage;
+    private int loginWaitAttempts;
+    private boolean loginPromptClicked;
+    private boolean loginSubmitted;
+    private boolean loginAttemptedThisRun;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -180,6 +187,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         detailLoadAttempts = 0;
         foregroundLaunchAttempts = 0;
         stage = STAGE_HOME;
+        loginWaitAttempts = 0;
+        loginPromptClicked = false;
+        loginSubmitted = false;
+        loginAttemptedThisRun = false;
         stageReadyAt = 0L;
 
         if (swipeKeyguardLocked) {
@@ -194,6 +205,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private String timeoutReason() {
         switch (stage) {
+            case STAGE_LOGIN:
+                return "90초 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
             case STAGE_WALLET:
                 return "90초 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
             case STAGE_DETAIL:
@@ -291,10 +304,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
-        if (contains(root, "로그인이 필요한 서비스") || contains(root, "로그인 하시겠습니까")) {
-            fail("신세계 앱 로그인이 필요합니다. 직접 로그인한 뒤 다시 실행해주세요.");
-            return;
-        }
+        if (handleLogin(root)) return;
         if (contains(root, "오늘 참여 완료") || contains(root, "R 당첨")) {
             succeed("오늘 출석이 완료되었습니다.");
             return;
@@ -385,6 +395,177 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+    }
+
+    private boolean handleLogin(AccessibilityNodeInfo root) {
+        boolean prompt = findVisibleContains(root, "로그인이 필요한 서비스") != null
+                || findVisibleContains(root, "로그인 하시겠습니까") != null;
+        LoginFields fields = findLoginFields(root);
+        boolean form = fields != null && findLoginButton(root, fields.password) != null;
+        if (stage != STAGE_LOGIN && !prompt && !form) return false;
+
+        if (stage != STAGE_LOGIN) {
+            if (loginAttemptedThisRun) {
+                fail("로그인 시도 후에도 로그인 화면이 다시 나타났습니다. 계정 정보나 추가 인증을 확인해주세요.");
+                return true;
+            }
+            if (!LoginCredentials.isSaved(this)) {
+                fail("신세계 앱 로그인이 필요하지만 저장된 아이디와 비밀번호가 없습니다. 앱에서 로그인 정보를 저장해주세요.");
+                return true;
+            }
+            stage = STAGE_LOGIN;
+            loginWaitAttempts = 0;
+            loginPromptClicked = false;
+            loginSubmitted = false;
+        }
+
+        if (loginSubmitted) {
+            if (findVisibleAnyContains(root, "아이디 또는 비밀번호", "비밀번호가 일치", "로그인에 실패", "비밀번호를 확인") != null) {
+                fail("신세계 앱에서 로그인 정보를 확인하라는 오류가 표시되었습니다. 저장한 아이디와 비밀번호를 확인해주세요.");
+                return true;
+            }
+            if (findVisibleAnyContains(root, "인증번호", "추가 인증", "보안문자") != null) {
+                fail("신세계 앱에서 추가 인증을 요청했습니다. 직접 인증한 뒤 다시 실행해주세요.");
+                return true;
+            }
+            if (fields == null && !prompt) {
+                stage = STAGE_HOME;
+                stageReadyAt = SystemClock.uptimeMillis() + 700L;
+                handler.postDelayed(processRunnable, 700L);
+                return true;
+            }
+            if (++loginWaitAttempts > 25) {
+                fail("로그인 버튼을 누른 뒤에도 로그인 화면이 유지됩니다. 계정 정보 또는 추가 인증을 확인해주세요.");
+                return true;
+            }
+            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            return true;
+        }
+
+        if (form) {
+            LoginCredentials.Account account;
+            try {
+                account = LoginCredentials.read(this);
+            } catch (Exception error) {
+                fail("저장된 로그인 정보를 읽지 못했습니다. 앱에서 아이디와 비밀번호를 다시 저장해주세요.");
+                return true;
+            }
+            if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
+                fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
+                return true;
+            }
+            if (!setNodeText(fields.username, account.username)
+                    || !setNodeText(fields.password, account.password)) {
+                fail("신세계 앱 로그인 입력칸에 정보를 입력하지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
+                return true;
+            }
+            AccessibilityNodeInfo loginButton = findLoginButton(root, fields.password);
+            if (loginButton == null || !loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                fail("신세계 앱 로그인 버튼을 누르지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
+                return true;
+            }
+            loginSubmitted = true;
+            loginAttemptedThisRun = true;
+            loginWaitAttempts = 0;
+            stageReadyAt = SystemClock.uptimeMillis() + 1300L;
+            handler.postDelayed(processRunnable, 1300L);
+            return true;
+        }
+
+        if (prompt && !loginPromptClicked) {
+            AccessibilityNodeInfo loginButton = findLoginButton(root);
+            if (loginButton == null) loginButton = findVisibleExact(root, "확인");
+            if (loginButton != null) {
+                clickNodeOrCenter(loginButton);
+                loginPromptClicked = true;
+            }
+        }
+        if (++loginWaitAttempts > 25) {
+            fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
+            return true;
+        }
+        handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+        return true;
+    }
+
+    private static final class LoginFields {
+        final AccessibilityNodeInfo username;
+        final AccessibilityNodeInfo password;
+
+        LoginFields(AccessibilityNodeInfo username, AccessibilityNodeInfo password) {
+            this.username = username;
+            this.password = password;
+        }
+    }
+
+    private LoginFields findLoginFields(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        ArrayList<AccessibilityNodeInfo> usernames = new ArrayList<>();
+        AccessibilityNodeInfo password = null;
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            if (node.isVisibleToUser() && node.isEditable()) {
+                if (node.isPassword()) {
+                    if (password != null) return null;
+                    password = node;
+                } else {
+                    usernames.add(node);
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        if (password == null || usernames.size() != 1) return null;
+        Rect userBounds = new Rect();
+        Rect passwordBounds = new Rect();
+        usernames.get(0).getBoundsInScreen(userBounds);
+        password.getBoundsInScreen(passwordBounds);
+        if (userBounds.isEmpty() || passwordBounds.isEmpty()
+                || userBounds.centerY() >= passwordBounds.centerY()) return null;
+        return new LoginFields(usernames.get(0), password);
+    }
+
+    private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root) {
+        return findLoginButton(root, null);
+    }
+
+    private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root, AccessibilityNodeInfo passwordField) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        Rect bounds = new Rect();
+        Rect passwordBounds = new Rect();
+        if (passwordField != null) passwordField.getBoundsInScreen(passwordBounds);
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            CharSequence value = node.getText();
+            if (TextUtils.isEmpty(value)) value = node.getContentDescription();
+            String label = value == null ? "" : value.toString().trim();
+            if (("로그인".equals(label) || "로그인하기".equals(label)) && node.isVisibleToUser()) {
+                AccessibilityNodeInfo candidate = node;
+                for (int i = 0; i < 3 && candidate != null; i++, candidate = candidate.getParent()) {
+                    candidate.getBoundsInScreen(bounds);
+                    if (candidate.isClickable() && bounds.height() > 0
+                            && (passwordField == null || bounds.centerY() > passwordBounds.centerY())
+                            && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.18f) {
+                        return candidate;
+                    }
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return null;
+    }
+
+    private boolean setNodeText(AccessibilityNodeInfo node, String value) {
+        Bundle arguments = new Bundle();
+        arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+        return node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments);
     }
 
     private boolean contains(AccessibilityNodeInfo root, String text) {
