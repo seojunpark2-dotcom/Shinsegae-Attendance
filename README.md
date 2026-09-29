@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [빠른 실행 APK v1.1.0-fast20 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast20.apk)
-- [빠른 실행 ZIP v1.1.0-fast20 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-fast20.zip) — 브라우저가 APK를 차단할 때 사용
+- [결과 팝업 APK v1.1.0-result-popup 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-result-popup.apk)
+- [결과 팝업 ZIP v1.1.0-result-popup 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.0-result-popup.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -16,7 +16,8 @@
 3. **접근성 권한 열기**에서 `신세계 자동 출석`을 켭니다.
 4. **알람 권한 열기**에서 정확한 알람을 허용합니다.
 5. 실행 시각과 프라이버시 커튼 사용 여부를 설정합니다.
-6. **매일 자동 출석 켜기**를 누른 뒤 **지금 테스트 실행**으로 확인합니다.
+6. **매일 자동 출석 켜기**를 누른 뒤 **수동 실행**으로 확인합니다.
+7. 결과 알림이 표시되지 않으면 **결과 팝업 알림 설정**에서 알림을 허용하고 팝업 표시를 켭니다. Android 13 이상에서는 앱의 알림 권한도 허용해야 합니다.
 
 ## 동작 조건
 
@@ -30,5 +31,7 @@
 계정 비밀번호나 인증번호를 읽거나 저장하지 않으며 APK에는 인터넷 권한이 없습니다. 신세계 앱 화면이나 이벤트 구성이 변경되면 업데이트가 필요할 수 있습니다.
 
 `v1.1.0-fast20`은 최근 앱 카드 제목이 정확히 `신세계`와 일치할 때만 제거합니다. 부분 일치나 `신세계 자동 출석` 카드는 제외하며, 제거 동작이 없을 때도 정확히 확인된 `신세계` 제목의 가로 중심에서만 위쪽 제스처를 실행합니다.
+
+`v1.1.0-result-popup`은 자동 출석의 성공과 실패를 높은 중요도의 결과 알림으로 표시합니다. 실패하면 발견된 문제나 마지막으로 진행하던 단계를 알립니다. 예약 시각의 출석 독촉 알림은 별도 설정으로 유지됩니다. 휴대폰의 알림 권한, 채널 팝업 설정, 방해 금지 모드에 따라 실제 팝업 표시는 제한될 수 있습니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.

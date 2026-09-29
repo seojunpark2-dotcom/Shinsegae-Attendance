@@ -19,7 +19,7 @@ public class AlarmReceiver extends BroadcastReceiver {
             AttendanceAccessibilityService.requestScheduledRun(appContext);
         }
         if (reminderEnabled) {
-            Notifier.show(
+            Notifier.showReminder(
                     appContext,
                     "신세계 출석 알림",
                     "오늘의 출석체크를 아직 완료하지 않았어요!"

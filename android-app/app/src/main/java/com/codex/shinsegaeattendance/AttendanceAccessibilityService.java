@@ -97,6 +97,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
+        if (running) {
+            String reason = "접근성 서비스가 종료되어 자동 출석이 중단되었습니다. 접근성 설정을 확인해주세요.";
+            getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
+                    .putString("last_result", reason)
+                    .putLong("last_result_at", System.currentTimeMillis())
+                    .apply();
+            Notifier.show(this, "신세계 자동 출석 실패", reason);
+            running = false;
+        }
         if (instance == this) instance = null;
         finishWakeLock();
         removePrivacyCurtain();
@@ -179,8 +188,21 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             launchTargetApp();
         }
         handler.postDelayed(() -> {
-            if (running) fail("90초 안에 출석을 완료하지 못했습니다.");
+            if (running) fail(timeoutReason());
         }, 90000);
+    }
+
+    private String timeoutReason() {
+        switch (stage) {
+            case STAGE_WALLET:
+                return "90초 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
+            case STAGE_DETAIL:
+                return "90초 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
+            case STAGE_RESULT:
+                return "참여 버튼을 누른 뒤 90초 안에 완료 표시를 확인하지 못했습니다. 신세계 앱에서 실제 출석 여부를 확인해주세요.";
+            default:
+                return "90초 동안 신세계 앱 첫 화면에서 출석 절차를 시작하지 못했습니다. 앱 화면이나 로그인 상태를 확인해주세요.";
+        }
     }
 
     private void requestSystemKeyguardDismiss() {
@@ -443,6 +465,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void succeed(String message) {
+        if (!running) return;
         running = false;
         handler.removeCallbacks(processRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
@@ -454,13 +477,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void fail(String message) {
+        if (!running) return;
         running = false;
         handler.removeCallbacks(processRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
                 .putString("last_result", message)
                 .putLong("last_result_at", System.currentTimeMillis())
                 .apply();
-        Notifier.show(this, "신세계 자동 출석 중단", message);
+        Notifier.show(this, "신세계 자동 출석 실패", message);
         finishVisualRun();
     }
 

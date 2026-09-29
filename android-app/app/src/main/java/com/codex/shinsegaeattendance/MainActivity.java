@@ -38,9 +38,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         prefs = getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE);
+        Notifier.createChannels(this);
         hour = prefs.getInt(ScheduleManager.KEY_HOUR, 10);
         minute = prefs.getInt(ScheduleManager.KEY_MINUTE, 0);
         setContentView(buildUi());
+        if (prefs.getBoolean(ScheduleManager.KEY_ENABLED, false)) requestNotificationPermission();
         refresh();
     }
 
@@ -145,8 +147,20 @@ public class MainActivity extends Activity {
         exactAlarm.setOnClickListener(v -> openExactAlarmSettings());
         root.addView(exactAlarm, matchWrap());
 
+        Button resultNotifications = button("결과 팝업 알림 설정");
+        resultNotifications.setOnClickListener(v -> {
+            Intent settings = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS);
+            settings.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            settings.putExtra(Settings.EXTRA_CHANNEL_ID, Notifier.resultChannelId());
+            startActivity(settings);
+        });
+        root.addView(resultNotifications, matchWrap());
+
         Button test = button("수동 실행");
-        test.setOnClickListener(v -> AttendanceAccessibilityService.requestManualRun(this));
+        test.setOnClickListener(v -> {
+            requestNotificationPermission();
+            AttendanceAccessibilityService.requestManualRun(this);
+        });
         root.addView(test, matchWrap());
 
         statusText = label("", 15, false);
@@ -163,6 +177,7 @@ public class MainActivity extends Activity {
     }
 
     private void enableSchedule() {
+        requestNotificationPermission();
         if (!AttendanceAccessibilityService.isEnabled(this)) {
             Toast.makeText(this, "먼저 접근성에서 ‘신세계 자동 출석’을 켜주세요.", Toast.LENGTH_LONG).show();
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
