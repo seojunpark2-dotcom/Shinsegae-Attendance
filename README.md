@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [APK v1.1.1 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.1.apk)
-- [ZIP v1.1.1 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.1.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v1.1.2 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.2.apk)
+- [ZIP v1.1.2 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.2.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -36,5 +36,7 @@
 `v1.1.0-result-popup`은 자동 출석의 성공과 실패를 높은 중요도의 결과 알림으로 표시합니다. 실패하면 발견된 문제나 마지막으로 진행하던 단계를 알립니다. 예약 시각의 출석 독촉 알림은 별도 설정으로 유지됩니다. 휴대폰의 알림 권한, 채널 팝업 설정, 방해 금지 모드에 따라 실제 팝업 표시는 제한될 수 있습니다.
 
 `v1.1.1`은 신세계 앱에서 로그인이 필요한 화면이 확인될 때 저장한 계정으로 로그인을 시도하고, 로그인 완료 후 기존 출석 절차를 이어갑니다. 로그인 화면의 입력칸과 버튼을 확인할 수 없거나 추가 인증이 요구되면 실패 알림을 표시합니다.
+
+`v1.1.2`는 신세계 앱의 "로그인이 필요한 서비스" 팝업이 보이면 **예**를 누르고, 팝업이 닫혀 로그인 입력 화면이 나타난 다음 저장된 계정으로 로그인을 시도합니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.

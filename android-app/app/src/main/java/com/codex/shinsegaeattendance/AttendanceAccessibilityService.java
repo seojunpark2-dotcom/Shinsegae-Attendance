@@ -442,6 +442,29 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return true;
         }
 
+        // The Shinsegae login-required dialog must be confirmed before the
+        // ID/password fields can be used. Prefer its explicit "예" action.
+        if (prompt) {
+            if (!loginPromptClicked) {
+                AccessibilityNodeInfo confirmation = findVisibleExact(root, "예");
+                if (confirmation == null) confirmation = findLoginButton(root);
+                if (confirmation == null) confirmation = findVisibleExact(root, "확인");
+                if (confirmation != null) {
+                    clickNodeOrCenter(confirmation);
+                    loginPromptClicked = true;
+                    stageReadyAt = SystemClock.uptimeMillis() + 650L;
+                    handler.postDelayed(processRunnable, 650L);
+                    return true;
+                }
+            }
+            if (++loginWaitAttempts > 25) {
+                fail("로그인이 필요하다는 팝업에서 ‘예’를 누른 뒤에도 로그인 화면이 열리지 않았습니다.");
+                return true;
+            }
+            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            return true;
+        }
+
         if (form) {
             LoginCredentials.Account account;
             try {
@@ -472,14 +495,6 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return true;
         }
 
-        if (prompt && !loginPromptClicked) {
-            AccessibilityNodeInfo loginButton = findLoginButton(root);
-            if (loginButton == null) loginButton = findVisibleExact(root, "확인");
-            if (loginButton != null) {
-                clickNodeOrCenter(loginButton);
-                loginPromptClicked = true;
-            }
-        }
         if (++loginWaitAttempts > 25) {
             fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
             return true;
