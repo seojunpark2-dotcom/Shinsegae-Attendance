@@ -43,6 +43,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private static final int STAGE_DETAIL = 2;
     private static final int STAGE_RESULT = 3;
     private static final int STAGE_LOGIN = 4;
+    private static final int STAGE_LOGOUT = 5;
+    private static final long ACCOUNT_TIMEOUT_MS = 120000L;
     private static AttendanceAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
@@ -66,6 +68,18 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private boolean loginAttemptedThisRun;
     private boolean loginKeyboardDismissed;
     private int loginPasswordCenterY;
+    private List<LoginCredentials.Account> runAccounts = new ArrayList<>();
+    private final List<String> accountResults = new ArrayList<>();
+    private int accountIndex;
+    private int accountSuccessCount;
+    private long accountStartedAt;
+    private int logoutAttempts;
+    private int logoutBackAttempts;
+    private boolean logoutTapped;
+    private int logoutStep;
+    private int logoutScrolls;
+    private boolean sessionProbeStarted;
+    private boolean logoutVerificationTapped;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -119,6 +133,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             running = false;
         }
         if (instance == this) instance = null;
+        runAccounts = new ArrayList<>();
         finishWakeLock();
         removePrivacyCurtain();
         super.onDestroy();
@@ -161,6 +176,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             removePrivacyCurtain();
         }
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        try {
+            runAccounts = LoginCredentials.readAccounts(this);
+        } catch (Exception error) {
+            Notifier.show(this, "자동 출석 실행 불가", "저장된 계정 정보를 읽지 못했습니다. 앱에서 계정 목록을 확인해주세요.");
+            return;
+        }
+        accountIndex = 0;
+        accountSuccessCount = 0;
+        accountResults.clear();
         boolean swipeKeyguardLocked = keyguard.isKeyguardLocked();
 
         PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
@@ -184,14 +208,22 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         wakeLock = power.newWakeLock(
                 PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "ShinsegaeAttendance:Run");
-        wakeLock.acquire(3 * 60 * 1000L);
+        wakeLock.acquire(Math.max(3, runAccounts.size() * 3) * 60 * 1000L);
         running = true;
         runStartedAt = SystemClock.uptimeMillis();
+        accountStartedAt = runStartedAt;
         carouselAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
         foregroundLaunchAttempts = 0;
-        stage = STAGE_HOME;
+        stage = runAccounts.isEmpty() ? STAGE_HOME : STAGE_LOGOUT;
+        logoutAttempts = 0;
+        logoutBackAttempts = 0;
+        logoutTapped = false;
+        logoutStep = 0;
+        logoutScrolls = 0;
+        sessionProbeStarted = false;
+        logoutVerificationTapped = false;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
         loginFieldsFilled = false;
@@ -206,23 +238,34 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         } else {
             launchTargetApp();
         }
-        handler.postDelayed(() -> {
-            if (running) fail(timeoutReason());
-        }, 90000);
+        handler.postDelayed(timeoutRunnable, 1000L);
     }
+
+    private final Runnable timeoutRunnable = new Runnable() {
+        @Override public void run() {
+            if (!running) return;
+            if (SystemClock.uptimeMillis() - accountStartedAt >= ACCOUNT_TIMEOUT_MS) {
+                fail(timeoutReason());
+            } else {
+                handler.postDelayed(this, 1000L);
+            }
+        }
+    };
 
     private String timeoutReason() {
         switch (stage) {
+            case STAGE_LOGOUT:
+                return "계정 전환을 위해 신세계 앱의 로그아웃 화면을 찾거나 로그아웃 완료를 확인하지 못했습니다.";
             case STAGE_LOGIN:
-                return "90초 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
+                return "2분 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
             case STAGE_WALLET:
-                return "90초 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
+                return "2분 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
             case STAGE_DETAIL:
-                return "90초 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
+                return "2분 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
             case STAGE_RESULT:
-                return "참여 버튼을 누른 뒤 90초 안에 완료 표시를 확인하지 못했습니다. 신세계 앱에서 실제 출석 여부를 확인해주세요.";
+                return "참여 버튼을 누른 뒤 2분 안에 완료 표시를 확인하지 못했습니다. 신세계 앱에서 실제 출석 여부를 확인해주세요.";
             default:
-                return "90초 동안 신세계 앱 첫 화면에서 출석 절차를 시작하지 못했습니다. 앱 화면이나 로그인 상태를 확인해주세요.";
+                return "2분 동안 신세계 앱 첫 화면에서 출석 절차를 시작하지 못했습니다. 앱 화면이나 로그인 상태를 확인해주세요.";
         }
     }
 
@@ -319,6 +362,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
+        if (stage == STAGE_LOGOUT) {
+            handleLogout(root);
+            return;
+        }
         if (handleLogin(root)) return;
         if (contains(root, "오늘 참여 완료") || contains(root, "R 당첨")) {
             succeed("오늘 출석이 완료되었습니다.");
@@ -412,6 +459,238 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         handler.postDelayed(processRunnable, SHORT_WAIT_MS);
     }
 
+    private void handleLogout(AccessibilityNodeInfo root) {
+        // The user-provided screens show: main hamburger -> all menu (scroll
+        // to bottom) -> 설정 -> 환경설정 -> 로그아웃. Never claim an account is
+        // switched until a logged-out UI is actually observed.
+        boolean loginForm = findLoginFields(root) != null;
+        boolean loginPrompt = findVisibleContains(root, "로그인이 필요한 서비스") != null;
+        boolean loginVisible = findVisibleExact(root, "로그인") != null;
+        if (loginForm || loginPrompt || (loginVisible && findVisibleExact(root, "로그아웃") == null
+                && (logoutTapped || findVisibleExact(root, "환경설정") != null))) {
+            beginAttendanceForCurrentAccount();
+            return;
+        }
+
+        if (logoutStep == 5) {
+            AccessibilityNodeInfo confirm = findVisibleExact(root, "예");
+            if (confirm == null) confirm = findVisibleExact(root, "확인");
+            if (confirm != null && findVisibleContains(root, "로그아웃") != null) {
+                clickNodeOrCenter(confirm);
+                handler.postDelayed(processRunnable, 900L);
+                return;
+            }
+            if (!logoutVerificationTapped && logoutAttempts >= 3
+                    && (contains(root, "MY SHINSEGAE")
+                    || (contains(root, "온라인쇼핑") && contains(root, "백화점")))) {
+                // A logged-out home screen does not always say "로그인".
+                // Opening Rewards should display the login-required prompt.
+                tap(0.271f, 0.892f);
+                logoutVerificationTapped = true;
+                handler.postDelayed(processRunnable, 850L);
+                return;
+            }
+            if (++logoutAttempts > 20) {
+                fail("로그아웃 버튼을 누른 뒤에도 로그아웃 완료를 확인하지 못했습니다. 다른 계정의 출석은 진행하지 않았습니다.");
+                return;
+            }
+            handler.postDelayed(processRunnable, 700L);
+            return;
+        }
+
+        boolean settingsPage = findVisibleExact(root, "환경설정") != null
+                && findVisibleExact(root, "로그아웃") != null;
+        boolean menuPage = findVisibleContains(root, "검색어를 입력하세요") != null
+                || findVisibleExact(root, "나의 선택 점포") != null;
+        boolean mainPage = contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (settingsPage) {
+            logoutStep = 4;
+        } else if (logoutStep == 0) {
+            if (menuPage) logoutStep = 2;
+            else if (mainPage) logoutStep = 1;
+        }
+
+        if (logoutStep == 4) {
+            // The Shinsegae app's own auto-login would silently sign back in
+            // to the old account. Turn it off only when its switch state can
+            // be confirmed by the accessibility tree.
+            AccessibilityNodeInfo autoLoginLabel = findVisibleExact(root, "자동 로그인 사용");
+            AccessibilityNodeInfo autoLoginSwitch = autoLoginLabel == null
+                    ? null : findCheckableBeside(root, autoLoginLabel);
+            if (autoLoginSwitch == null) {
+                fail("신세계 앱의 '자동 로그인 사용' 상태를 확인하지 못했습니다. 직접 끈 뒤 다시 실행해주세요.");
+                return;
+            }
+            if (autoLoginSwitch.isChecked()) {
+                clickNodeOrCenter(autoLoginSwitch);
+                handler.postDelayed(processRunnable, 500L);
+                return;
+            }
+            AccessibilityNodeInfo logout = findVisibleExact(root, "로그아웃");
+            if (logout == null) {
+                if (++logoutAttempts > 10) fail("환경설정에서 로그아웃 버튼을 찾지 못했습니다.");
+                else handler.postDelayed(processRunnable, 500L);
+                return;
+            }
+            clickNodeOrCenter(logout);
+            logoutTapped = true;
+            logoutStep = 5;
+            logoutAttempts = 0;
+            handler.postDelayed(processRunnable, 900L);
+            return;
+        }
+
+        if (logoutStep == 2) {
+            if (!menuPage) {
+                if (++logoutAttempts > 8) fail("전체 메뉴 화면이 열리지 않았습니다.");
+                else handler.postDelayed(processRunnable, 500L);
+                return;
+            }
+            logoutAttempts = 0;
+            AccessibilityNodeInfo settings = findMenuSettings(root);
+            if (settings != null) {
+                clickNodeOrCenter(settings);
+                logoutStep = 3;
+                logoutAttempts = 0;
+                handler.postDelayed(processRunnable, 800L);
+                return;
+            }
+            if (logoutScrolls++ >= 8) {
+                fail("전체 메뉴를 내려도 맨 아래의 설정 버튼을 찾지 못했습니다.");
+                return;
+            }
+            swipe(0.50f, 0.78f, 0.50f, 0.30f, 420L);
+            handler.postDelayed(processRunnable, 650L);
+            return;
+        }
+
+        if (logoutStep == 1) {
+            if (!sessionProbeStarted && accountIndex == 0) {
+                tap(0.271f, 0.892f);
+                sessionProbeStarted = true;
+                logoutStep = 0;
+                handler.postDelayed(processRunnable, 850L);
+                return;
+            }
+            AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
+            if (menu != null) clickNodeOrCenter(menu);
+            else tap(0.08f, 0.083f); // Unlabeled hamburger in the provided main-screen image.
+            logoutStep = 2;
+            logoutScrolls = 0;
+            handler.postDelayed(processRunnable, 850L);
+            return;
+        }
+
+        if (logoutStep == 3) {
+            if (++logoutAttempts > 10) {
+                fail("설정 버튼을 누른 뒤 환경설정 화면이 열리지 않았습니다.");
+            } else {
+                handler.postDelayed(processRunnable, 500L);
+            }
+            return;
+        }
+
+        if (logoutBackAttempts++ < 3) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            handler.postDelayed(processRunnable, 700L);
+        } else {
+            fail("신세계 앱의 메인 화면으로 돌아가지 못해 계정 전환을 중단했습니다.");
+        }
+    }
+
+    private AccessibilityNodeInfo findMenuSettings(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            CharSequence value = node.getText();
+            if (TextUtils.isEmpty(value)) value = node.getContentDescription();
+            if (node.isVisibleToUser() && value != null
+                    && value.toString().trim().startsWith("설정")) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty() && bounds.centerX() < width * 0.40f
+                        && bounds.centerY() > height * 0.62f) return node;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return null;
+    }
+
+    private AccessibilityNodeInfo findCheckableBeside(AccessibilityNodeInfo root, AccessibilityNodeInfo label) {
+        Rect labelBounds = new Rect();
+        label.getBoundsInScreen(labelBounds);
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            if (node.isVisibleToUser() && node.isCheckable()) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                int distance = Math.abs(bounds.centerY() - labelBounds.centerY());
+                if (bounds.centerX() > labelBounds.centerX()
+                        && distance < getResources().getDisplayMetrics().heightPixels * 0.055f
+                        && distance < bestDistance) {
+                    best = node;
+                    bestDistance = distance;
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return best;
+    }
+
+    private void beginAttendanceForCurrentAccount() {
+        AccessibilityNodeInfo current = getRootInActiveWindow();
+        if (current != null && findVisibleExact(current, "환경설정") != null) {
+            // The settings screenshot has a persistent Home control in its
+            // bottom navigation; return there before opening Rewards.
+            AccessibilityNodeInfo home = findVisibleExact(current, "홈");
+            if (home != null) clickNodeOrCenter(home);
+            else tap(0.63f, 0.918f);
+        }
+        stage = STAGE_HOME;
+        carouselAttempts = 0;
+        detailAttempts = 0;
+        detailLoadAttempts = 0;
+        foregroundLaunchAttempts = 0;
+        loginWaitAttempts = 0;
+        loginPromptClicked = false;
+        loginFieldsFilled = false;
+        loginSubmitted = false;
+        loginAttemptedThisRun = false;
+        loginKeyboardDismissed = false;
+        loginPasswordCenterY = -1;
+        stageReadyAt = SystemClock.uptimeMillis() + 350L;
+        accountStartedAt = SystemClock.uptimeMillis();
+        handler.postDelayed(processRunnable, 350L);
+    }
+
+    private void beginLogoutForNextAccount() {
+        stage = STAGE_LOGOUT;
+        logoutStep = 0;
+        logoutAttempts = 0;
+        logoutBackAttempts = 0;
+        logoutScrolls = 0;
+        logoutTapped = false;
+        logoutVerificationTapped = false;
+        sessionProbeStarted = true;
+        stageReadyAt = SystemClock.uptimeMillis() + 500L;
+        accountStartedAt = SystemClock.uptimeMillis();
+        handler.postDelayed(processRunnable, 500L);
+    }
+
     private boolean handleLogin(AccessibilityNodeInfo root) {
         boolean prompt = findVisibleContains(root, "로그인이 필요한 서비스") != null
                 || findVisibleContains(root, "로그인 하시겠습니까") != null;
@@ -424,8 +703,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("로그인 시도 후에도 로그인 화면이 다시 나타났습니다. 계정 정보나 추가 인증을 확인해주세요.");
                 return true;
             }
-            if (!LoginCredentials.isSaved(this)) {
-                fail("신세계 앱 로그인이 필요하지만 저장된 아이디와 비밀번호가 없습니다. 앱에서 로그인 정보를 저장해주세요.");
+            if (runAccounts.isEmpty()) {
+                fail("신세계 앱 로그인이 필요하지만 저장된 계정이 없습니다. 앱에서 계정을 추가해주세요.");
                 return true;
             }
             stage = STAGE_LOGIN;
@@ -509,13 +788,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         if (form) {
-            LoginCredentials.Account account;
-            try {
-                account = LoginCredentials.read(this);
-            } catch (Exception error) {
-                fail("저장된 로그인 정보를 읽지 못했습니다. 앱에서 아이디와 비밀번호를 다시 저장해주세요.");
-                return true;
-            }
+            LoginCredentials.Account account = runAccounts.get(accountIndex);
             if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
                 fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
                 return true;
@@ -733,8 +1006,20 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void succeed(String message) {
         if (!running) return;
+        if (!runAccounts.isEmpty()) {
+            accountSuccessCount++;
+            accountResults.add((accountIndex + 1) + "번째 성공");
+            if (accountIndex + 1 < runAccounts.size()) {
+                accountIndex++;
+                beginLogoutForNextAccount();
+            } else {
+                finishBatch(null);
+            }
+            return;
+        }
         running = false;
         handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
                 .putString("last_result", message)
                 .putLong("last_result_at", System.currentTimeMillis())
@@ -745,13 +1030,52 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void fail(String message) {
         if (!running) return;
+        if (!runAccounts.isEmpty()) {
+            if (stage == STAGE_LOGOUT) {
+                finishBatch("계정 전환 중단: " + message);
+                return;
+            }
+            accountResults.add((accountIndex + 1) + "번째 실패: " + message);
+            if (accountIndex + 1 < runAccounts.size()) {
+                accountIndex++;
+                beginLogoutForNextAccount();
+            } else {
+                finishBatch(null);
+            }
+            return;
+        }
         running = false;
         handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
                 .putString("last_result", message)
                 .putLong("last_result_at", System.currentTimeMillis())
                 .apply();
         Notifier.show(this, "신세계 자동 출석 실패", message);
+        finishVisualRun();
+    }
+
+    private void finishBatch(String interruption) {
+        running = false;
+        handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
+        StringBuilder result = new StringBuilder();
+        result.append(runAccounts.size()).append("개 계정 중 ")
+                .append(accountSuccessCount).append("개 출석 성공");
+        if (interruption != null) result.append(". ").append(interruption);
+        for (String accountResult : accountResults) {
+            if (accountResult.contains("실패")) result.append(". ").append(accountResult);
+        }
+        String message = result.toString();
+        getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
+                .putString("last_result", message)
+                .putLong("last_result_at", System.currentTimeMillis())
+                .apply();
+        Notifier.show(this,
+                interruption == null && accountSuccessCount == runAccounts.size()
+                        ? "모든 계정 출석 완료" : "계정별 출석 결과 확인",
+                message);
+        runAccounts = new ArrayList<>();
         finishVisualRun();
     }
 
