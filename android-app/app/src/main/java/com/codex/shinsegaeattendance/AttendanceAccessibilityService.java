@@ -44,6 +44,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private static final int STAGE_RESULT = 3;
     private static final int STAGE_LOGIN = 4;
     private static final int STAGE_LOGOUT = 5;
+    private static final int STAGE_OPEN_LOGIN = 6;
     private static final long ACCOUNT_TIMEOUT_MS = 120000L;
     private static AttendanceAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -70,6 +71,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int loginPasswordCenterY;
     private int loginAutoToggleAttempts;
     private int loginAutoControlWaits;
+    private int loginOpenAttempts;
+    private int loginBackAttempts;
     private List<LoginCredentials.Account> runAccounts = new ArrayList<>();
     private final List<String> accountResults = new ArrayList<>();
     private int accountIndex;
@@ -235,6 +238,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginPasswordCenterY = -1;
         loginAutoToggleAttempts = 0;
         loginAutoControlWaits = 0;
+        loginOpenAttempts = 0;
+        loginBackAttempts = 0;
         stageReadyAt = 0L;
 
         if (swipeKeyguardLocked) {
@@ -262,6 +267,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return "계정 전환을 위해 신세계 앱의 로그아웃 화면을 찾거나 로그아웃 완료를 확인하지 못했습니다.";
             case STAGE_LOGIN:
                 return "2분 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
+            case STAGE_OPEN_LOGIN:
+                return "2분 동안 메인 화면의 사람 아이콘에서 로그인 화면을 열지 못했습니다.";
             case STAGE_WALLET:
                 return "2분 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
             case STAGE_DETAIL:
@@ -371,6 +378,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
         if (handleLogin(root)) return;
+        if (stage == STAGE_OPEN_LOGIN) {
+            handleOpenLogin(root);
+            return;
+        }
         if (contains(root, "오늘 참여 완료") || contains(root, "R 당첨")) {
             succeed("오늘 출석이 완료되었습니다.");
             return;
@@ -472,7 +483,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         boolean loginVisible = findVisibleExact(root, "로그인") != null;
         if (loginForm || loginPrompt || (loginVisible && findVisibleExact(root, "로그아웃") == null
                 && (logoutTapped || findVisibleExact(root, "환경설정") != null))) {
-            beginAttendanceForCurrentAccount();
+            beginLoginForCurrentAccount();
             return;
         }
 
@@ -488,8 +499,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                     && (contains(root, "MY SHINSEGAE")
                     || (contains(root, "온라인쇼핑") && contains(root, "백화점")))) {
                 // A logged-out home screen does not always say "로그인".
-                // Opening Rewards should display the login-required prompt.
-                tap(0.271f, 0.892f);
+                // The bottom-right profile control is the dedicated login
+                // entry point on the supplied Shinsegae home screen.
+                tap(0.875f, 0.892f);
                 logoutVerificationTapped = true;
                 handler.postDelayed(processRunnable, 850L);
                 return;
@@ -571,7 +583,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
         if (logoutStep == 1) {
             if (!sessionProbeStarted && accountIndex == 0) {
-                tap(0.271f, 0.892f);
+                tap(0.875f, 0.892f);
                 sessionProbeStarted = true;
                 logoutStep = 0;
                 handler.postDelayed(processRunnable, 850L);
@@ -655,16 +667,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         return best;
     }
 
-    private void beginAttendanceForCurrentAccount() {
+    private void beginLoginForCurrentAccount() {
         AccessibilityNodeInfo current = getRootInActiveWindow();
         if (current != null && findVisibleExact(current, "환경설정") != null) {
             // The settings screenshot has a persistent Home control in its
-            // bottom navigation; return there before opening Rewards.
+            // bottom navigation; return there before opening the profile.
             AccessibilityNodeInfo home = findVisibleExact(current, "홈");
             if (home != null) clickNodeOrCenter(home);
             else tap(0.63f, 0.918f);
         }
-        stage = STAGE_HOME;
+        stage = STAGE_OPEN_LOGIN;
         carouselAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
@@ -678,9 +690,38 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginPasswordCenterY = -1;
         loginAutoToggleAttempts = 0;
         loginAutoControlWaits = 0;
+        loginOpenAttempts = 0;
+        loginBackAttempts = 0;
         stageReadyAt = SystemClock.uptimeMillis() + 350L;
         accountStartedAt = SystemClock.uptimeMillis();
         handler.postDelayed(processRunnable, 350L);
+    }
+
+    private void handleOpenLogin(AccessibilityNodeInfo root) {
+        boolean mainPage = contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (mainPage) {
+            if (++loginOpenAttempts > 5) {
+                fail("메인 화면의 사람 아이콘을 눌러도 로그인 요청이 나타나지 않았습니다. 다른 계정의 출석은 진행하지 않았습니다.");
+                return;
+            }
+            tap(0.875f, 0.892f);
+            handler.postDelayed(processRunnable, 850L);
+            return;
+        }
+        if (findVisibleExact(root, "환경설정") != null) {
+            AccessibilityNodeInfo home = findVisibleExact(root, "홈");
+            if (home != null) clickNodeOrCenter(home);
+            else tap(0.63f, 0.918f);
+            handler.postDelayed(processRunnable, 850L);
+            return;
+        }
+        if (loginBackAttempts++ < 3) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            handler.postDelayed(processRunnable, 700L);
+        } else {
+            fail("신세계 앱 메인 화면으로 돌아가 사람 아이콘에서 로그인을 시작하지 못했습니다.");
+        }
     }
 
     private void beginLogoutForNextAccount() {
@@ -732,7 +773,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("신세계 앱에서 추가 인증을 요청했습니다. 직접 인증한 뒤 다시 실행해주세요.");
                 return true;
             }
-            if (fields == null && !prompt) {
+            boolean homeVisible = contains(root, "MY SHINSEGAE")
+                    || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+            boolean myPageVisible = contains(root, "나의 신세계")
+                    && contains(root, "안녕하세요");
+            if (fields == null && !prompt && (homeVisible || myPageVisible)) {
+                if (myPageVisible && !homeVisible) {
+                    AccessibilityNodeInfo home = findVisibleExact(root, "홈");
+                    if (home != null) clickNodeOrCenter(home);
+                    else tap(0.63f, 0.918f);
+                }
                 stage = STAGE_HOME;
                 stageReadyAt = SystemClock.uptimeMillis() + 700L;
                 handler.postDelayed(processRunnable, 700L);
