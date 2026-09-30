@@ -4,10 +4,10 @@
 
 ## 다운로드
 
-- [APK v2.7.26 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v2.7.26.apk)
-- [ZIP v2.7.26 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v2.7.26.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v2.7.27 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v2.7.27.apk)
+- [ZIP v2.7.27 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v2.7.27.zip) — 브라우저가 APK를 차단할 때 사용
 
-저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
+저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요. v2.7.27은 흰 배경에 검은 S와 체크 표시를 넣은 새 앱 아이콘을 적용했습니다.
 
 ## 설정
 
@@ -45,7 +45,7 @@
 
 - 맨 앞 숫자: 기존 설정이나 사용 방식과 호환되지 않는 개편이 있을 때 올립니다. 프로젝트 초기에 컴퓨터에 휴대폰을 연결해 실행하던 방식에서 휴대폰 단독 APK로 전환한 이력을 반영해 현재는 `2`입니다. 이 전환은 GitHub의 첫 APK 커밋보다 앞선 대화 이력에 근거합니다.
 - 중간 숫자: 기존 설정과 사용 방식을 유지하면서 독립적인 새 기능을 추가할 때 올립니다. GitHub 이력의 화면 상태 복귀(`6ce7a67`), 별도 출석 알림(`3dc1615`), 드래그 잠금 해제 지원(`7344b5d`), 최근 앱 정리(`d0ca496`), 결과 팝업(`89fcc36`), 자동 로그인(`4acbdba`)을 반영해 초기 `1`에서 `7`로 맞췄습니다. 후속 보완 커밋은 같은 기능으로 묶었습니다.
-- 마지막 숫자: 초기 APK 이후 수정된 APK를 배포할 때마다 1씩 올리는 누적 번호입니다. 이번 버전 표기 수정 배포는 `26`입니다. 앞이나 중간 숫자가 바뀌어도 초기화하지 않습니다.
+- 마지막 숫자: 초기 APK 이후 수정된 APK를 배포할 때마다 1씩 올리는 누적 번호입니다. 이번 아이콘 변경 배포는 `27`입니다. 앞이나 중간 숫자가 바뀌어도 초기화하지 않습니다.
 
 매번 배포 전에 기존 사용 방식과의 호환성, 독립적인 새 기능, 누적 수정 번호를 순서대로 확인해 세 숫자를 결정합니다. APK 내부 `versionCode`는 설치된 앱을 업데이트할 수 있도록 배포마다 별도로 증가시킵니다. 기존 APK 파일은 이전 배포 이력으로 남겨둡니다.
 

@@ -4,9 +4,24 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:fillColor="#6B4A34" android:pathData="M0,0h108v108h-108z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M26,24h56a8,8 0,0 1,8 8v52a8,8 0,0 1,-8 8h-56a8,8 0,0 1,-8 -8v-52a8,8 0,0 1,8 -8z" />
-    <path android:fillColor="#6B4A34" android:pathData="M18,40h72v12h-72zM34,16h8v18h-8zM66,16h8v18h-8z" />
-    <path android:fillColor="#6B4A34" android:pathData="M38,62h32v7h-32zM38,75h24v7h-24z" />
+    <!-- Keep the mark inside the launcher mask's safe area. -->
+    <path android:fillColor="#FFFFFF" android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#111111"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M70,34 C64,29 57,27 49,28 C39,29 34,35 34,42 C34,50 40,53 52,56 C65,59 71,64 70,72 C69,79 62,83 52,83 C43,83 36,79 32,74" />
+    <!-- A white halo keeps the completion badge distinct from the S. -->
+    <path android:fillColor="#FFFFFF" android:pathData="M76,73m-17,0a17,17 0,1 1,34 0a17,17 0,1 1,-34 0" />
+    <path android:fillColor="#111111" android:pathData="M76,73m-14,0a14,14 0,1 1,28 0a14,14 0,1 1,-28 0" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M69,73 L74,78 L83,68" />
 </vector>
 
