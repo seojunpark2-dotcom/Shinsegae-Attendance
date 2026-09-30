@@ -4,8 +4,8 @@
 
 ## 다운로드
 
-- [APK v1.1.24 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.24.apk)
-- [ZIP v1.1.24 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.1.24.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v1.7.25 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.7.25.apk)
+- [ZIP v1.7.25 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v1.7.25.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요.
 
@@ -39,8 +39,14 @@
 
 `v1.1.2`는 신세계 앱의 "로그인이 필요한 서비스" 팝업이 보이면 **예**를 누르고, 팝업이 닫혀 로그인 입력 화면이 나타난 다음 저장된 계정으로 로그인을 시도합니다.
 
-현재 기능의 표시 버전은 초기 `v1.1.0` 이후 24차례의 수정 이력에 맞춘 `v1.1.24`입니다. 앞으로 기능을 수정해 APK를 배포할 때마다 마지막 숫자를 1씩 올립니다. APK 내부 빌드 번호는 Android 업데이트 설치를 위해 별도로 증가시킵니다.
-
 `v1.1.24`는 아이디·비밀번호 입력 후 갱신된 로그인 화면에서 버튼을 다시 찾아 누릅니다.
+
+## 버전 번호 기준
+
+- 맨 앞 숫자: 기존 설정이나 사용 방식과 호환되지 않는 개편이 있을 때 올립니다. 첫 APK 이후 그런 개편은 없어 현재는 `1`입니다.
+- 중간 숫자: 기존 설정과 사용 방식을 유지하면서 독립적인 새 기능을 추가할 때 올립니다. GitHub 이력의 화면 상태 복귀(`6ce7a67`), 별도 출석 알림(`3dc1615`), 드래그 잠금 해제 지원(`7344b5d`), 최근 앱 정리(`d0ca496`), 결과 팝업(`89fcc36`), 자동 로그인(`4acbdba`)을 반영해 초기 `1`에서 `7`로 맞췄습니다. 후속 보완 커밋은 같은 기능으로 묶었습니다.
+- 마지막 숫자: 초기 APK 이후 수정된 APK를 배포할 때마다 1씩 올리는 누적 번호입니다. 이번 버전 표기 수정 배포는 `25`입니다. 앞이나 중간 숫자가 바뀌어도 초기화하지 않습니다.
+
+APK 내부 `versionCode`는 설치된 앱을 업데이트할 수 있도록 배포마다 별도로 증가시킵니다. 기존 APK 파일은 이전 배포 이력으로 남겨둡니다.
 
 앱 운영 정책에 따라 자동화 이용이 제한될 수 있으므로 본인 계정에서 정책을 확인한 후 사용하세요.
