@@ -4,10 +4,10 @@
 
 ## 다운로드
 
-- [APK v3.7.28 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v3.7.28.apk)
-- [ZIP v3.7.28 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v3.7.28.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v3.7.29 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v3.7.29.apk)
+- [ZIP v3.7.29 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/main/releases/shinsegae-auto-attendance-v3.7.29.zip) — 브라우저가 APK를 차단할 때 사용
 
-저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요. v3.7.28은 앱 아이콘과 맞춘 흑백 메인 화면으로 개편했습니다. 기존 예약 시각과 설정은 유지됩니다.
+저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요. v3.7.29는 출석 후 최근 앱 목록에서 `신세계` 카드에 이어 `신세계 자동 출석` 카드도 제거합니다. 기존 예약 시각과 설정은 유지됩니다.
 
 ## 설정
 
@@ -41,11 +41,13 @@
 
 `v1.1.24`는 아이디·비밀번호 입력 후 갱신된 로그인 화면에서 버튼을 다시 찾아 누릅니다.
 
+`v3.7.29`는 출석 성공 또는 실패 후 최근 앱에서 제목이 정확히 `신세계`인 카드만 찾아 제거하고, Android가 제공하는 자기 앱 작업 목록에서 `신세계 자동 출석` 카드도 제거합니다. 다른 앱 작업은 제거하지 않습니다.
+
 ## 버전 번호 기준
 
 - 맨 앞 숫자: 기존 설정이나 사용 방식과 호환되지 않는 개편이 있을 때 올립니다. 컴퓨터 연결 방식에서 휴대폰 단독 APK로 전환해 `2`가 되었고, 메인 화면의 자동 출석 조작을 버튼에서 스위치로, 계정 입력을 관리 창으로 바꾼 이번 개편에서 `3`이 되었습니다. 기존 저장 설정은 유지됩니다.
 - 중간 숫자: 기존 설정과 사용 방식을 유지하면서 독립적인 새 기능을 추가할 때 올립니다. GitHub 이력의 화면 상태 복귀(`6ce7a67`), 별도 출석 알림(`3dc1615`), 드래그 잠금 해제 지원(`7344b5d`), 최근 앱 정리(`d0ca496`), 결과 팝업(`89fcc36`), 자동 로그인(`4acbdba`)을 반영해 초기 `1`에서 `7`로 맞췄습니다. 후속 보완 커밋은 같은 기능으로 묶었습니다.
-- 마지막 숫자: 초기 APK 이후 수정된 APK를 배포할 때마다 1씩 올리는 누적 번호입니다. 이번 화면 개편 배포는 `28`입니다. 앞이나 중간 숫자가 바뀌어도 초기화하지 않습니다.
+- 마지막 숫자: 초기 APK 이후 수정된 APK를 배포할 때마다 1씩 올리는 누적 번호입니다. 이번 최근 앱 정리 보완 배포는 `29`입니다. 앞이나 중간 숫자가 바뀌어도 초기화하지 않습니다.
 
 매번 배포 전에 기존 사용 방식과의 호환성, 독립적인 새 기능, 누적 수정 번호를 순서대로 확인해 세 숫자를 결정합니다. APK 내부 `versionCode`는 설치된 앱을 업데이트할 수 있도록 배포마다 별도로 증가시킵니다. 기존 APK 파일은 이전 배포 이력으로 남겨둡니다.
 

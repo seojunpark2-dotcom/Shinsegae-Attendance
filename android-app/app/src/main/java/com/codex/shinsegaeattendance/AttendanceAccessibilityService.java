@@ -2,6 +2,7 @@ package com.codex.shinsegaeattendance;
 
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
+import android.app.ActivityManager;
 import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -791,8 +792,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void finishVisualRun() {
-        // Shinsegae is the current task. Open Recents and dismiss its card
-        // before restoring the app/display state that existed before the run.
+        // Dismiss Shinsegae's exact-title card in Recents, then remove only
+        // our own MainActivity task before restoring the previous display state.
         recentScanAttempts = 0;
         performGlobalAction(GLOBAL_ACTION_RECENTS);
         handler.postDelayed(this::findAndDismissShinsegaeRecentTask, 900L);
@@ -818,7 +819,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             } else {
                 // Safety first: if the Shinsegae label cannot be identified,
                 // leave every recent app untouched.
-                handler.postDelayed(this::restorePreviousVisualState, 300L);
+                handler.postDelayed(this::removeOwnRecentTaskAndRestore, 300L);
             }
             return;
         }
@@ -836,7 +837,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (cardSized
                     && (current.getActions() & AccessibilityNodeInfo.ACTION_DISMISS) != 0
                     && current.performAction(AccessibilityNodeInfo.ACTION_DISMISS)) {
-                handler.postDelayed(this::restorePreviousVisualState, 700L);
+                handler.postDelayed(this::removeOwnRecentTaskAndRestore, 700L);
                 return;
             }
             current = current.getParent();
@@ -849,7 +850,27 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         float x = Math.max(0.08f, Math.min(0.92f,
                 targetBounds.centerX() / (float) screenWidth));
         swipe(x, 0.65f, x, 0.06f, 560L);
-        handler.postDelayed(this::restorePreviousVisualState, 800L);
+        handler.postDelayed(this::removeOwnRecentTaskAndRestore, 800L);
+    }
+
+    private void removeOwnRecentTaskAndRestore() {
+        // Android exposes only this application's tasks here. Remove the
+        // MainActivity card without swiping or guessing a neighboring card.
+        ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        if (manager != null) {
+            try {
+                for (ActivityManager.AppTask task : manager.getAppTasks()) {
+                    ActivityManager.RecentTaskInfo info = task.getTaskInfo();
+                    if (info != null && info.baseActivity != null
+                            && MainActivity.class.getName().equals(info.baseActivity.getClassName())) {
+                        task.finishAndRemoveTask();
+                    }
+                }
+            } catch (RuntimeException ignored) {
+                // A missing or already-removed own task must not prevent exit.
+            }
+        }
+        restorePreviousVisualState();
     }
 
     private void restorePreviousVisualState() {
