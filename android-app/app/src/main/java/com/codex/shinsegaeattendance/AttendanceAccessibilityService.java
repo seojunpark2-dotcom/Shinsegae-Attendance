@@ -68,6 +68,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private boolean loginAttemptedThisRun;
     private boolean loginKeyboardDismissed;
     private int loginPasswordCenterY;
+    private int loginAutoToggleAttempts;
+    private int loginAutoControlWaits;
     private List<LoginCredentials.Account> runAccounts = new ArrayList<>();
     private final List<String> accountResults = new ArrayList<>();
     private int accountIndex;
@@ -231,6 +233,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginAttemptedThisRun = false;
         loginKeyboardDismissed = false;
         loginPasswordCenterY = -1;
+        loginAutoToggleAttempts = 0;
+        loginAutoControlWaits = 0;
         stageReadyAt = 0L;
 
         if (swipeKeyguardLocked) {
@@ -672,6 +676,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginAttemptedThisRun = false;
         loginKeyboardDismissed = false;
         loginPasswordCenterY = -1;
+        loginAutoToggleAttempts = 0;
+        loginAutoControlWaits = 0;
         stageReadyAt = SystemClock.uptimeMillis() + 350L;
         accountStartedAt = SystemClock.uptimeMillis();
         handler.postDelayed(processRunnable, 350L);
@@ -713,6 +719,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginFieldsFilled = false;
             loginSubmitted = false;
             loginKeyboardDismissed = false;
+            loginAutoToggleAttempts = 0;
+            loginAutoControlWaits = 0;
         }
 
         if (loginSubmitted) {
@@ -763,7 +771,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
         if (loginFieldsFilled) {
             // Setting the password often rebuilds the WebView. Find the
-            // enabled submit button on the refreshed accessibility tree.
+            // enabled submit button and confirm auto-login is still off on
+            // the refreshed accessibility tree before submitting.
+            if (ensureLoginAutoOff(root, true)) return true;
             AccessibilityNodeInfo loginButton = findLoginButton(root, loginPasswordCenterY);
             if (loginButton != null) {
                 if (!loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -788,6 +798,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         if (form) {
+            if (ensureLoginAutoOff(root, false)) return true;
             LoginCredentials.Account account = runAccounts.get(accountIndex);
             if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
                 fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
@@ -815,6 +826,31 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
         handler.postDelayed(processRunnable, SHORT_WAIT_MS);
         return true;
+    }
+
+    private boolean ensureLoginAutoOff(AccessibilityNodeInfo root, boolean afterFields) {
+        AccessibilityNodeInfo autoLogin = findLoginAutoCheckbox(root);
+        if (autoLogin == null) {
+            if (++loginAutoControlWaits > 12) {
+                fail("로그인 화면에서 '자동 로그인' 체크 상태를 확인하지 못했습니다. 직접 체크를 끈 뒤 다시 실행해주세요.");
+            } else {
+                handler.postDelayed(processRunnable, 400L);
+            }
+            return true;
+        }
+        loginAutoControlWaits = 0;
+        if (autoLogin.isChecked()) {
+            if (++loginAutoToggleAttempts > 3) {
+                fail("로그인 화면의 '자동 로그인' 체크를 해제하지 못했습니다.");
+                return true;
+            }
+            clickNodeOrCenter(autoLogin);
+            if (afterFields) loginFieldsFilled = false;
+            handler.postDelayed(processRunnable, 500L);
+            return true;
+        }
+        loginAutoToggleAttempts = 0;
+        return false;
     }
 
     private static final class LoginFields {
@@ -855,6 +891,53 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         if (userBounds.isEmpty() || passwordBounds.isEmpty()
                 || userBounds.centerY() >= passwordBounds.centerY()) return null;
         return new LoginFields(usernames.get(0), password);
+    }
+
+    private AccessibilityNodeInfo findLoginAutoCheckbox(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo label = findVisibleExact(root, "자동 로그인");
+        if (label == null) label = findVisibleExact(root, "자동로그인");
+        if (label == null) return null;
+        if (label.isCheckable()) return label;
+
+        Rect labelBounds = new Rect();
+        label.getBoundsInScreen(labelBounds);
+        if (labelBounds.isEmpty()) return null;
+        for (AccessibilityNodeInfo parent = label.getParent(); parent != null; parent = parent.getParent()) {
+            Rect bounds = new Rect();
+            parent.getBoundsInScreen(bounds);
+            if (parent.isCheckable() && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.09f) {
+                return parent;
+            }
+            if (bounds.height() > getResources().getDisplayMetrics().heightPixels * 0.16f) break;
+        }
+
+        // In the supplied login screen the checkbox is immediately left of
+        // its text, between the password field and the disabled login button.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo closest = null;
+        int closestDistance = Integer.MAX_VALUE;
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            if (node.isVisibleToUser() && node.isCheckable()) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                int vertical = Math.abs(bounds.centerY() - labelBounds.centerY());
+                int horizontal = Math.abs(bounds.centerX() - labelBounds.left);
+                if (!bounds.isEmpty() && vertical < height * 0.035f
+                        && horizontal < width * 0.18f && horizontal + vertical < closestDistance) {
+                    closest = node;
+                    closestDistance = horizontal + vertical;
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return closest;
     }
 
     private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root) {
