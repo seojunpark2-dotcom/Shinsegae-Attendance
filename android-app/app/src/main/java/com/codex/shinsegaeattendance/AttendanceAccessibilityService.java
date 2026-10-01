@@ -34,7 +34,8 @@ import java.util.List;
 public class AttendanceAccessibilityService extends AccessibilityService {
     private static final String TARGET_PACKAGE = "com.F1.ShinSG";
     private static final long EVENT_DEBOUNCE_MS = 250L;
-    private static final long STARTUP_WAIT_MS = 3000L;
+    private static final long STARTUP_WAIT_MS = 500L;
+    private static final long FOREGROUND_TIMEOUT_MS = 12000L;
     private static final long SHORT_WAIT_MS = 650L;
     private static final long PAGE_WAIT_MS = 1600L;
     private static final long RESULT_WAIT_MS = 2200L;
@@ -59,7 +60,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int carouselAttempts;
     private int detailAttempts;
     private int detailLoadAttempts;
-    private int foregroundLaunchAttempts;
+    private boolean targetLaunchRequested;
+    private long targetLaunchedAt;
+    private long foregroundMissingSince;
+    private boolean eventProcessScheduled;
     private int recentScanAttempts;
     private int stage;
     private int loginWaitAttempts;
@@ -80,11 +84,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private long accountStartedAt;
     private int logoutAttempts;
     private int logoutBackAttempts;
-    private boolean logoutTapped;
     private int logoutStep;
     private int logoutScrolls;
     private boolean sessionProbeStarted;
-    private boolean logoutVerificationTapped;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -157,8 +159,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
         if (pkg != null && !TARGET_PACKAGE.contentEquals(pkg)) return;
-        handler.removeCallbacks(processRunnable);
-        handler.postDelayed(processRunnable, EVENT_DEBOUNCE_MS);
+        if (!targetLaunchRequested || eventProcessScheduled) return;
+        eventProcessScheduled = true;
+        handler.postDelayed(eventProcessRunnable, EVENT_DEBOUNCE_MS);
     }
 
     @Override
@@ -220,15 +223,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         carouselAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
-        foregroundLaunchAttempts = 0;
+        targetLaunchRequested = false;
+        targetLaunchedAt = 0L;
+        foregroundMissingSince = 0L;
+        eventProcessScheduled = false;
         stage = runAccounts.isEmpty() ? STAGE_HOME : STAGE_LOGOUT;
         logoutAttempts = 0;
         logoutBackAttempts = 0;
-        logoutTapped = false;
         logoutStep = 0;
         logoutScrolls = 0;
         sessionProbeStarted = false;
-        logoutVerificationTapped = false;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
         loginFieldsFilled = false;
@@ -264,7 +268,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private String timeoutReason() {
         switch (stage) {
             case STAGE_LOGOUT:
-                return "계정 전환을 위해 신세계 앱의 로그아웃 화면을 찾거나 로그아웃 완료를 확인하지 못했습니다.";
+                return "계정 전환을 위해 신세계 앱의 설정 또는 로그아웃 버튼을 찾지 못했습니다.";
             case STAGE_LOGIN:
                 return "2분 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
             case STAGE_OPEN_LOGIN:
@@ -296,7 +300,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void handleSystemKeyguardDismissResult(boolean dismissed) {
         if (!running) return;
         if (dismissed) {
-            handler.postDelayed(this::launchTargetApp, 500L);
+            // Let UnlockActivity finish before bringing the target task forward.
+            handler.post(this::launchTargetApp);
             return;
         }
 
@@ -325,51 +330,64 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void launchTargetApp() {
-        if (!running) return;
+        if (!running || targetLaunchRequested) return;
         Intent launch = getPackageManager().getLaunchIntentForPackage(TARGET_PACKAGE);
         if (launch == null) {
             fail("신세계백화점 앱을 찾을 수 없습니다.");
             return;
         }
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // Bring the existing task forward once, without clearing/restarting
+        // its activity stack each time the accessibility root is loading.
+        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION);
         try {
+            targetLaunchRequested = true;
+            targetLaunchedAt = SystemClock.uptimeMillis();
             startActivity(launch);
-            handler.postDelayed(processRunnable, STARTUP_WAIT_MS);
+            handler.removeCallbacks(processRunnable);
+            scheduleProcess(STARTUP_WAIT_MS);
         } catch (RuntimeException error) {
             fail("신세계백화점 앱을 실행하지 못했습니다.");
         }
     }
 
     private final Runnable processRunnable = this::processScreen;
+    private final Runnable eventProcessRunnable = this::processScreen;
+
+    private void scheduleProcess(long delayMillis) {
+        stageReadyAt = SystemClock.uptimeMillis() + delayMillis;
+        handler.removeCallbacks(processRunnable);
+        handler.postDelayed(processRunnable, delayMillis);
+    }
 
     private void processScreen() {
-        if (!running) return;
+        handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(eventProcessRunnable);
+        eventProcessScheduled = false;
+        if (!running || !targetLaunchRequested) return;
         if (stage == STAGE_LOGIN && loginFieldsFilled
                 && !loginKeyboardDismissed && isInputMethodVisible()) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             loginKeyboardDismissed = true;
-            handler.postDelayed(processRunnable, 500L);
+            scheduleProcess(500L);
             return;
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null || !TARGET_PACKAGE.contentEquals(root.getPackageName())) {
-            foregroundLaunchAttempts++;
-            if (foregroundLaunchAttempts == 4 || foregroundLaunchAttempts == 9) {
-                launchTargetApp();
-                return;
-            }
-            if (foregroundLaunchAttempts > 14) {
+            long now = SystemClock.uptimeMillis();
+            if (foregroundMissingSince == 0L) foregroundMissingSince = now;
+            if (now - foregroundMissingSince >= FOREGROUND_TIMEOUT_MS) {
                 fail("신세계 앱을 화면에 표시하지 못했습니다. 잠금화면이나 배터리 설정을 확인해주세요.");
                 return;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return;
         }
-        foregroundLaunchAttempts = 0;
+        foregroundMissingSince = 0L;
 
         long waitForStage = stageReadyAt - SystemClock.uptimeMillis();
         if (waitForStage > 0) {
-            handler.postDelayed(processRunnable, waitForStage);
+            scheduleProcess(waitForStage);
             return;
         }
 
@@ -394,7 +412,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo close = findVisibleExact(root, "닫기");
         if (close != null) {
             clickNodeOrCenter(close);
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return;
         }
 
@@ -405,7 +423,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 && !contains(root, "이벤트 기간")
                 && (contains(root, "내 리워드") || contains(root, "신백리워드"))) {
             if (detailLoadAttempts++ < 10) {
-                handler.postDelayed(processRunnable, 400L);
+                scheduleProcess(400L);
             } else {
                 fail("리워드 캘린더 상세 페이지가 열리지 않았습니다.");
             }
@@ -424,17 +442,17 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (cta != null) {
                 stage = STAGE_RESULT;
                 clickNodeOrCenter(cta);
-                handler.postDelayed(processRunnable, RESULT_WAIT_MS);
+                scheduleProcess(RESULT_WAIT_MS);
             } else if (detailAttempts == 0) {
                 // The CTA sits just below the first viewport. Move the page
                 // only once and only a short distance so we never pass it.
                 detailAttempts++;
                 swipe(0.50f, 0.66f, 0.50f, 0.51f, 280);
-                handler.postDelayed(processRunnable, 700L);
+                scheduleProcess(700L);
             } else if (detailAttempts++ < 8) {
                 // Do not scroll again. Give the WebView a moment to expose the
                 // button after the single short movement.
-                handler.postDelayed(processRunnable, 400L);
+                scheduleProcess(400L);
             } else {
                 fail("짧은 스크롤 후 ‘리워드 받으러 가기’ 버튼을 찾지 못했습니다.");
             }
@@ -450,12 +468,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 detailAttempts = 0;
                 detailLoadAttempts = 0;
                 clickNodeOrCenter(calendar);
-                handler.postDelayed(processRunnable, 900L);
+                scheduleProcess(900L);
                 return;
             }
             if (carouselAttempts++ < 5) {
                 swipe(0.78f, 0.68f, 0.20f, 0.68f, 450);
-                handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+                scheduleProcess(SHORT_WAIT_MS);
             } else {
                 fail("리워드 캘린더 카드를 찾지 못했습니다. 앱 화면이 변경되었을 수 있습니다.");
             }
@@ -467,50 +485,23 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             stage = STAGE_WALLET;
             stageReadyAt = SystemClock.uptimeMillis() + 900L;
             tap(0.271f, 0.892f);
-            handler.postDelayed(processRunnable, 900L);
+            scheduleProcess(900L);
             return;
         }
 
-        handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+        scheduleProcess(SHORT_WAIT_MS);
     }
 
     private void handleLogout(AccessibilityNodeInfo root) {
         // The user-provided screens show: main hamburger -> all menu (scroll
-        // to bottom) -> 설정 -> 환경설정 -> 로그아웃. Never claim an account is
-        // switched until a logged-out UI is actually observed.
+        // to bottom) -> 설정 -> 환경설정 -> 로그아웃, then immediately begin
+        // the next login flow without a separate logout verification pass.
         boolean loginForm = findLoginFields(root) != null;
         boolean loginPrompt = findVisibleContains(root, "로그인이 필요한 서비스") != null;
         boolean loginVisible = findVisibleExact(root, "로그인") != null;
         if (loginForm || loginPrompt || (loginVisible && findVisibleExact(root, "로그아웃") == null
-                && (logoutTapped || findVisibleExact(root, "환경설정") != null))) {
+                && findVisibleExact(root, "환경설정") != null)) {
             beginLoginForCurrentAccount();
-            return;
-        }
-
-        if (logoutStep == 5) {
-            AccessibilityNodeInfo confirm = findVisibleExact(root, "예");
-            if (confirm == null) confirm = findVisibleExact(root, "확인");
-            if (confirm != null && findVisibleContains(root, "로그아웃") != null) {
-                clickNodeOrCenter(confirm);
-                handler.postDelayed(processRunnable, 900L);
-                return;
-            }
-            if (!logoutVerificationTapped && logoutAttempts >= 3
-                    && (contains(root, "MY SHINSEGAE")
-                    || (contains(root, "온라인쇼핑") && contains(root, "백화점")))) {
-                // A logged-out home screen does not always say "로그인".
-                // The bottom-right profile control is the dedicated login
-                // entry point on the supplied Shinsegae home screen.
-                tap(0.875f, 0.892f);
-                logoutVerificationTapped = true;
-                handler.postDelayed(processRunnable, 850L);
-                return;
-            }
-            if (++logoutAttempts > 20) {
-                fail("로그아웃 버튼을 누른 뒤에도 로그아웃 완료를 확인하지 못했습니다. 다른 계정의 출석은 진행하지 않았습니다.");
-                return;
-            }
-            handler.postDelayed(processRunnable, 700L);
             return;
         }
 
@@ -540,27 +531,24 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
             if (autoLoginSwitch.isChecked()) {
                 clickNodeOrCenter(autoLoginSwitch);
-                handler.postDelayed(processRunnable, 500L);
+                scheduleProcess(500L);
                 return;
             }
             AccessibilityNodeInfo logout = findVisibleExact(root, "로그아웃");
             if (logout == null) {
                 if (++logoutAttempts > 10) fail("환경설정에서 로그아웃 버튼을 찾지 못했습니다.");
-                else handler.postDelayed(processRunnable, 500L);
+                else scheduleProcess(500L);
                 return;
             }
             clickNodeOrCenter(logout);
-            logoutTapped = true;
-            logoutStep = 5;
-            logoutAttempts = 0;
-            handler.postDelayed(processRunnable, 900L);
+            beginLoginForCurrentAccount();
             return;
         }
 
         if (logoutStep == 2) {
             if (!menuPage) {
                 if (++logoutAttempts > 8) fail("전체 메뉴 화면이 열리지 않았습니다.");
-                else handler.postDelayed(processRunnable, 500L);
+                else scheduleProcess(500L);
                 return;
             }
             logoutAttempts = 0;
@@ -569,7 +557,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 clickNodeOrCenter(settings);
                 logoutStep = 3;
                 logoutAttempts = 0;
-                handler.postDelayed(processRunnable, 800L);
+                scheduleProcess(800L);
                 return;
             }
             if (logoutScrolls++ >= 8) {
@@ -577,7 +565,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
             swipe(0.50f, 0.78f, 0.50f, 0.30f, 420L);
-            handler.postDelayed(processRunnable, 650L);
+            scheduleProcess(650L);
             return;
         }
 
@@ -586,7 +574,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 tap(0.875f, 0.892f);
                 sessionProbeStarted = true;
                 logoutStep = 0;
-                handler.postDelayed(processRunnable, 850L);
+                scheduleProcess(850L);
                 return;
             }
             AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
@@ -594,7 +582,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             else tap(0.08f, 0.083f); // Unlabeled hamburger in the provided main-screen image.
             logoutStep = 2;
             logoutScrolls = 0;
-            handler.postDelayed(processRunnable, 850L);
+            scheduleProcess(850L);
             return;
         }
 
@@ -602,14 +590,18 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (++logoutAttempts > 10) {
                 fail("설정 버튼을 누른 뒤 환경설정 화면이 열리지 않았습니다.");
             } else {
-                handler.postDelayed(processRunnable, 500L);
+                scheduleProcess(500L);
             }
             return;
         }
 
-        if (logoutBackAttempts++ < 3) {
+        // A cold launch may still show a splash screen. Do not back out of
+        // the app while its initial accessibility content is loading.
+        if (SystemClock.uptimeMillis() - targetLaunchedAt < 4000L) {
+            scheduleProcess(400L);
+        } else if (logoutBackAttempts++ < 3) {
             performGlobalAction(GLOBAL_ACTION_BACK);
-            handler.postDelayed(processRunnable, 700L);
+            scheduleProcess(700L);
         } else {
             fail("신세계 앱의 메인 화면으로 돌아가지 못해 계정 전환을 중단했습니다.");
         }
@@ -668,19 +660,11 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginLoginForCurrentAccount() {
-        AccessibilityNodeInfo current = getRootInActiveWindow();
-        if (current != null && findVisibleExact(current, "환경설정") != null) {
-            // The settings screenshot has a persistent Home control in its
-            // bottom navigation; return there before opening the profile.
-            AccessibilityNodeInfo home = findVisibleExact(current, "홈");
-            if (home != null) clickNodeOrCenter(home);
-            else tap(0.63f, 0.918f);
-        }
         stage = STAGE_OPEN_LOGIN;
         carouselAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
-        foregroundLaunchAttempts = 0;
+        foregroundMissingSince = 0L;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
         loginFieldsFilled = false;
@@ -692,12 +676,25 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginAutoControlWaits = 0;
         loginOpenAttempts = 0;
         loginBackAttempts = 0;
-        stageReadyAt = SystemClock.uptimeMillis() + 350L;
+        stageReadyAt = SystemClock.uptimeMillis() + 650L;
         accountStartedAt = SystemClock.uptimeMillis();
-        handler.postDelayed(processRunnable, 350L);
+        handler.removeCallbacks(processRunnable);
+        scheduleProcess(650L);
     }
 
     private void handleOpenLogin(AccessibilityNodeInfo root) {
+        // Some app builds show a logout confirmation dialog. Complete the
+        // required action, then continue directly to the profile/login entry.
+        if (findVisibleContains(root, "로그아웃") != null) {
+            AccessibilityNodeInfo confirm = findVisibleExact(root, "예");
+            if (confirm == null) confirm = findVisibleExact(root, "확인");
+            if (confirm != null) {
+                clickNodeOrCenter(confirm);
+                stageReadyAt = SystemClock.uptimeMillis() + 650L;
+                scheduleProcess(650L);
+                return;
+            }
+        }
         boolean mainPage = contains(root, "MY SHINSEGAE")
                 || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
         if (mainPage) {
@@ -706,19 +703,19 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
             tap(0.875f, 0.892f);
-            handler.postDelayed(processRunnable, 850L);
+            scheduleProcess(850L);
             return;
         }
         if (findVisibleExact(root, "환경설정") != null) {
             AccessibilityNodeInfo home = findVisibleExact(root, "홈");
             if (home != null) clickNodeOrCenter(home);
             else tap(0.63f, 0.918f);
-            handler.postDelayed(processRunnable, 850L);
+            scheduleProcess(850L);
             return;
         }
         if (loginBackAttempts++ < 3) {
             performGlobalAction(GLOBAL_ACTION_BACK);
-            handler.postDelayed(processRunnable, 700L);
+            scheduleProcess(700L);
         } else {
             fail("신세계 앱 메인 화면으로 돌아가 사람 아이콘에서 로그인을 시작하지 못했습니다.");
         }
@@ -730,12 +727,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         logoutAttempts = 0;
         logoutBackAttempts = 0;
         logoutScrolls = 0;
-        logoutTapped = false;
-        logoutVerificationTapped = false;
         sessionProbeStarted = true;
         stageReadyAt = SystemClock.uptimeMillis() + 500L;
         accountStartedAt = SystemClock.uptimeMillis();
-        handler.postDelayed(processRunnable, 500L);
+        scheduleProcess(500L);
     }
 
     private boolean handleLogin(AccessibilityNodeInfo root) {
@@ -785,14 +780,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 }
                 stage = STAGE_HOME;
                 stageReadyAt = SystemClock.uptimeMillis() + 700L;
-                handler.postDelayed(processRunnable, 700L);
+                scheduleProcess(700L);
                 return true;
             }
             if (++loginWaitAttempts > 25) {
                 fail("로그인 버튼을 누른 뒤에도 로그인 화면이 유지됩니다. 계정 정보 또는 추가 인증을 확인해주세요.");
                 return true;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return true;
         }
 
@@ -807,7 +802,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                     clickNodeOrCenter(confirmation);
                     loginPromptClicked = true;
                     stageReadyAt = SystemClock.uptimeMillis() + 650L;
-                    handler.postDelayed(processRunnable, 650L);
+                    scheduleProcess(650L);
                     return true;
                 }
             }
@@ -815,7 +810,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("로그인이 필요하다는 팝업에서 ‘예’를 누른 뒤에도 로그인 화면이 열리지 않았습니다.");
                 return true;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return true;
         }
 
@@ -836,14 +831,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 loginAttemptedThisRun = true;
                 loginWaitAttempts = 0;
                 stageReadyAt = SystemClock.uptimeMillis() + 1300L;
-                handler.postDelayed(processRunnable, 1300L);
+                scheduleProcess(1300L);
                 return true;
             }
             if (++loginWaitAttempts > 12) {
                 fail("아이디·비밀번호 입력 후 로그인 버튼을 찾지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
                 return true;
             }
-            handler.postDelayed(processRunnable, 400L);
+            scheduleProcess(400L);
             return true;
         }
 
@@ -866,7 +861,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginKeyboardDismissed = false;
             loginWaitAttempts = 0;
             stageReadyAt = SystemClock.uptimeMillis() + 700L;
-            handler.postDelayed(processRunnable, 700L);
+            scheduleProcess(700L);
             return true;
         }
 
@@ -874,7 +869,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
             return true;
         }
-        handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+        scheduleProcess(SHORT_WAIT_MS);
         return true;
     }
 
@@ -884,7 +879,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (++loginAutoControlWaits > 12) {
                 fail("로그인 화면에서 '자동 로그인' 체크 상태를 확인하지 못했습니다. 직접 체크를 끈 뒤 다시 실행해주세요.");
             } else {
-                handler.postDelayed(processRunnable, 400L);
+                scheduleProcess(400L);
             }
             return true;
         }
@@ -896,7 +891,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
             clickNodeOrCenter(autoLogin);
             if (afterFields) loginFieldsFilled = false;
-            handler.postDelayed(processRunnable, 500L);
+            scheduleProcess(500L);
             return true;
         }
         loginAutoToggleAttempts = 0;
