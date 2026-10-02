@@ -47,6 +47,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private static final int STAGE_LOGOUT = 5;
     private static final int STAGE_OPEN_LOGIN = 6;
     private static final long ACCOUNT_TIMEOUT_MS = 120000L;
+    private static final long HUMAN_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000L;
     private static AttendanceAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
@@ -70,6 +71,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private boolean loginPromptClicked;
     private boolean loginFieldsFilled;
     private boolean loginSubmitted;
+    private boolean awaitingHumanVerification;
+    private long humanVerificationStartedAt;
+    private boolean verificationCurtainSuspended;
+    private boolean captchaResubmitted;
     private boolean loginAttemptedThisRun;
     private boolean loginKeyboardDismissed;
     private int loginPasswordCenterY;
@@ -173,6 +178,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void startAutomation(boolean manual) {
         if (running) {
+            if (awaitingHumanVerification) {
+                Notifier.showVerification(this, "직접 인증 대기 중", "신세계 앱에서 인증을 완료해주세요. 완료가 확인되면 자동 출석을 이어갑니다.");
+                return;
+            }
             long runningFor = SystemClock.uptimeMillis() - runStartedAt;
             if (!manual || runningFor < 20000L) {
                 Notifier.show(this, "자동 출석", "이미 실행 중입니다.");
@@ -218,6 +227,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         wakeLock = power.newWakeLock(
                 PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "ShinsegaeAttendance:Run");
+        wakeLock.setReferenceCounted(false);
         wakeLock.acquire(Math.max(3, runAccounts.size() * 3) * 60 * 1000L);
         running = true;
         runStartedAt = SystemClock.uptimeMillis();
@@ -241,6 +251,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginPromptClicked = false;
         loginFieldsFilled = false;
         loginSubmitted = false;
+        awaitingHumanVerification = false;
+        humanVerificationStartedAt = 0L;
+        verificationCurtainSuspended = false;
+        captchaResubmitted = false;
         loginAttemptedThisRun = false;
         loginKeyboardDismissed = false;
         loginPasswordCenterY = -1;
@@ -261,11 +275,17 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private final Runnable timeoutRunnable = new Runnable() {
         @Override public void run() {
             if (!running) return;
+            if (awaitingHumanVerification) {
+                if (SystemClock.uptimeMillis() - humanVerificationStartedAt >= HUMAN_VERIFICATION_TIMEOUT_MS) {
+                    fail("직접 인증을 기다린 지 10분이 지나 대기를 종료했습니다. 신세계 앱에서 인증 상태를 확인해주세요.");
+                }
+                if (running) handler.postDelayed(this, 1000L);
+                return;
+            }
             if (SystemClock.uptimeMillis() - accountStartedAt >= ACCOUNT_TIMEOUT_MS) {
                 fail(timeoutReason());
-            } else {
-                handler.postDelayed(this, 1000L);
             }
+            if (running) handler.postDelayed(this, 1000L);
         }
     };
 
@@ -378,6 +398,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null || !TARGET_PACKAGE.contentEquals(root.getPackageName())) {
+            if (awaitingHumanVerification) {
+                // Let the user switch to a notification or authentication UI
+                // without relaunching the app or triggering foreground failure.
+                scheduleProcess(1000L);
+                return;
+            }
             long now = SystemClock.uptimeMillis();
             if (foregroundMissingSince == 0L) foregroundMissingSince = now;
             if (now - foregroundMissingSince >= FOREGROUND_TIMEOUT_MS) {
@@ -395,6 +421,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
+        if (awaitingHumanVerification) {
+            handleLogin(root);
+            return;
+        }
         // Handle the launch advertisement before login/account navigation so
         // its overlay cannot redirect taps intended for the home screen.
         if (handleAdvertisement(root)) return;
@@ -700,6 +730,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginLoginForCurrentAccount() {
+        endHumanVerification();
+        captchaResubmitted = false;
         stage = STAGE_OPEN_LOGIN;
         carouselAttempts = 0;
         detailAttempts = 0;
@@ -771,6 +803,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginLogoutForNextAccount() {
+        endHumanVerification();
+        captchaResubmitted = false;
         stage = STAGE_LOGOUT;
         logoutStep = 0;
         logoutAttempts = 0;
@@ -812,10 +846,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("신세계 앱에서 로그인 정보를 확인하라는 오류가 표시되었습니다. 저장한 아이디와 비밀번호를 확인해주세요.");
                 return true;
             }
-            if (findVisibleAnyContains(root, "인증번호", "추가 인증", "보안문자") != null) {
-                fail("신세계 앱에서 추가 인증을 요청했습니다. 직접 인증한 뒤 다시 실행해주세요.");
-                return true;
-            }
+            if (handleHumanVerification(root)) return true;
             boolean homeVisible = contains(root, "MY SHINSEGAE")
                     || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
             boolean myPageVisible = contains(root, "나의 신세계")
@@ -919,6 +950,79 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
         scheduleProcess(SHORT_WAIT_MS);
         return true;
+    }
+
+    private boolean handleHumanVerification(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo robotLabel = findVisibleAnyContains(root,
+                "로봇이 아닙니다", "로봇이아닙니다", "I'm not a robot", "I’m not a robot");
+        AccessibilityNodeInfo robotCheckbox = robotLabel == null
+                ? null : findCheckboxForLabel(root, robotLabel);
+        boolean additionalAuth = findVisibleAnyContains(root,
+                "인증번호", "추가 인증", "보안문자", "reCAPTCHA") != null;
+        boolean checked = robotCheckbox != null && robotCheckbox.isChecked();
+        if (!awaitingHumanVerification && robotLabel == null && !additionalAuth) {
+            captchaResubmitted = false;
+            return false;
+        }
+        if (captchaResubmitted && checked && !awaitingHumanVerification) return false;
+
+        if (!awaitingHumanVerification) {
+            awaitingHumanVerification = true;
+            humanVerificationStartedAt = SystemClock.uptimeMillis();
+            verificationCurtainSuspended = curtainView != null;
+            removePrivacyCurtain();
+            if (wakeLock != null) {
+                wakeLock.acquire(HUMAN_VERIFICATION_TIMEOUT_MS
+                        + Math.max(3, runAccounts.size() * 3) * 60000L);
+            }
+            if (!checked) {
+                Notifier.showVerification(this, "신세계 직접 인증 필요",
+                        "신세계 앱에서 ‘로봇이 아닙니다’를 직접 체크해주세요. 완료가 확인되면 로그인과 출석을 이어갑니다. 최대 10분 기다립니다.");
+            }
+        }
+
+        // A user may finish the entire login themselves. Only a recognized
+        // logged-in screen is sufficient to leave the manual wait here.
+        boolean loggedInPage = (contains(root, "나의 신세계") && contains(root, "안녕하세요"))
+                || contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (robotLabel == null && !additionalAuth && findLoginFields(root) == null && loggedInPage) {
+            endHumanVerification();
+            captchaResubmitted = false;
+            loginWaitAttempts = 0;
+            return false;
+        }
+        if (checked && !captchaResubmitted) {
+            AccessibilityNodeInfo login = findLoginButton(root, loginPasswordCenterY);
+            if (login != null && login.isEnabled()) {
+                // The human completed CAPTCHA; interact only with the app's
+                // login button, never with the CAPTCHA or its challenge.
+                if (!login.performAction(AccessibilityNodeInfo.ACTION_CLICK) && !tapLoginButton(login)) {
+                    fail("직접 인증 후 로그인 버튼을 누르지 못했습니다.");
+                    return true;
+                }
+                captchaResubmitted = true;
+                endHumanVerification();
+                loginWaitAttempts = 0;
+                scheduleProcess(1300L);
+                return true;
+            }
+        }
+        if (!checked) captchaResubmitted = false;
+        // An unreadable/missing checkbox is not proof of verification. Keep
+        // waiting so the user can finish authentication/login themselves.
+        scheduleProcess(1000L);
+        return true;
+    }
+
+    private void endHumanVerification() {
+        if (!awaitingHumanVerification) return;
+        accountStartedAt += SystemClock.uptimeMillis() - humanVerificationStartedAt;
+        awaitingHumanVerification = false;
+        humanVerificationStartedAt = 0L;
+        foregroundMissingSince = 0L;
+        if (verificationCurtainSuspended && running) showPrivacyCurtain();
+        verificationCurtainSuspended = false;
     }
 
     private boolean ensureLoginAutoOff(AccessibilityNodeInfo root, boolean afterFields) {
@@ -1188,6 +1292,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void succeed(String message) {
         if (!running) return;
+        endHumanVerification();
         if (!runAccounts.isEmpty()) {
             accountSuccessCount++;
             accountResults.add((accountIndex + 1) + "번째 성공");
@@ -1212,6 +1317,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void fail(String message) {
         if (!running) return;
+        endHumanVerification();
         if (!runAccounts.isEmpty()) {
             if (stage == STAGE_LOGOUT) {
                 finishBatch("계정 전환 중단: " + message);
