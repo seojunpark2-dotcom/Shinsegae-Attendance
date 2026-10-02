@@ -670,7 +670,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
             scrollMenuToBottom(root);
-            scheduleProcess(850L);
+            scheduleProcess(350L);
             return;
         }
 
@@ -731,14 +731,22 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void scrollMenuToBottom(AccessibilityNodeInfo root) {
-        // Recycler/list controls can jump directly to the final item. A
-        // WebView usually lacks this action, so use a fast long fling there.
+        // Ask the footer itself to become visible. WebViews may expose its
+        // accessibility node even while it is below the viewport.
         ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
         queue.add(root);
         AccessibilityNodeInfo scroll = null;
+        AccessibilityNodeInfo footer = null;
         int largestArea = 0;
         while (!queue.isEmpty()) {
             AccessibilityNodeInfo node = queue.removeFirst();
+            CharSequence label = node.getText();
+            if (TextUtils.isEmpty(label)) label = node.getContentDescription();
+            if (label != null && label.toString().trim().matches("설정[\\s⚙]*")
+                    && node.getActionList().contains(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN)) {
+                footer = node;
+            }
             Rect bounds = new Rect();
             node.getBoundsInScreen(bounds);
             int area = bounds.width() * bounds.height();
@@ -751,6 +759,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 if (child != null) queue.add(child);
             }
         }
+        if (logoutScrolls == 1 && footer != null
+                && footer.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId())) {
+            return;
+        }
         if (scroll != null) {
             AccessibilityNodeInfo.CollectionInfo collection = scroll.getCollectionInfo();
             if (logoutScrolls == 1 && collection != null && collection.getRowCount() > 1
@@ -762,14 +774,13 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_COLUMN_INT, 0);
                 if (scroll.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position)) return;
             }
-            // Alternate native scrolling with gestures: some WebViews report
-            // success for an action without actually moving their content.
-            if (logoutScrolls % 2 == 0
+            // Retain a native fallback if fast flings are ignored by this view.
+            if (logoutScrolls % 4 == 0
                     && scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return;
         }
         // Start above the persistent bottom navigation bar, not on its icons.
         // Keep both ends inside the scrollable content below the fixed header.
-        swipe(0.50f, 0.82f, 0.50f, 0.30f, 240L);
+        swipe(0.50f, 0.84f, 0.50f, 0.24f, 90L);
     }
 
     private void openCalendarMenu(AccessibilityNodeInfo root) {
