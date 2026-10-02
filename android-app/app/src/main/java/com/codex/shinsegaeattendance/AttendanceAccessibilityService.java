@@ -86,7 +86,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int logoutBackAttempts;
     private int logoutStep;
     private int logoutScrolls;
-    private boolean sessionProbeStarted;
+    private boolean adOptOutTapped;
+    private int adToggleAttempts;
+    private int adCloseAttempts;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -227,12 +229,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         targetLaunchedAt = 0L;
         foregroundMissingSince = 0L;
         eventProcessScheduled = false;
-        stage = runAccounts.isEmpty() ? STAGE_HOME : STAGE_LOGOUT;
+        stage = runAccounts.isEmpty() ? STAGE_HOME : STAGE_OPEN_LOGIN;
         logoutAttempts = 0;
         logoutBackAttempts = 0;
         logoutStep = 0;
         logoutScrolls = 0;
-        sessionProbeStarted = false;
+        adOptOutTapped = false;
+        adToggleAttempts = 0;
+        adCloseAttempts = 0;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
         loginFieldsFilled = false;
@@ -391,6 +395,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
+        // Handle the launch advertisement before login/account navigation so
+        // its overlay cannot redirect taps intended for the home screen.
+        if (handleAdvertisement(root)) return;
         if (stage == STAGE_LOGOUT) {
             handleLogout(root);
             return;
@@ -492,6 +499,46 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         scheduleProcess(SHORT_WAIT_MS);
     }
 
+    private boolean handleAdvertisement(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo label = findVisibleAnyContains(root,
+                "오늘은 그만보기", "오늘은 그만 보기", "오늘 그만보기",
+                "오늘 하루 보지 않기", "오늘 하루 보지않기");
+        if (label == null) {
+            adOptOutTapped = false;
+            adToggleAttempts = 0;
+            adCloseAttempts = 0;
+            return false;
+        }
+        AccessibilityNodeInfo checkbox = findCheckboxForLabel(root, label);
+        if (checkbox != null && !checkbox.isChecked()) {
+            if (++adToggleAttempts > 3) {
+                fail("광고의 ‘오늘은 그만보기’ 체크박스를 활성화하지 못했습니다.");
+                return true;
+            }
+            clickNodeOrCenter(checkbox);
+            adOptOutTapped = true;
+            scheduleProcess(400L);
+            return true;
+        }
+        if (checkbox == null && !adOptOutTapped && !label.isSelected()) {
+            // Some WebViews expose only the checkbox label. Tap it once;
+            // never toggle it repeatedly when checked state is unavailable.
+            clickNodeOrCenter(label);
+            adOptOutTapped = true;
+            scheduleProcess(400L);
+            return true;
+        }
+        AccessibilityNodeInfo close = findVisibleExact(root, "닫기");
+        if (close == null) close = findVisibleContains(root, "닫기");
+        if (++adCloseAttempts > 5) {
+            fail("광고의 ‘닫기’ 버튼을 찾거나 광고창을 닫지 못했습니다.");
+            return true;
+        }
+        if (close != null) clickNodeOrCenter(close);
+        scheduleProcess(500L);
+        return true;
+    }
+
     private void handleLogout(AccessibilityNodeInfo root) {
         // The user-provided screens show: main hamburger -> all menu (scroll
         // to bottom) -> 설정 -> 환경설정 -> 로그아웃, then immediately begin
@@ -570,13 +617,6 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         if (logoutStep == 1) {
-            if (!sessionProbeStarted && accountIndex == 0) {
-                tap(0.875f, 0.892f);
-                sessionProbeStarted = true;
-                logoutStep = 0;
-                scheduleProcess(850L);
-                return;
-            }
             AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
             if (menu != null) clickNodeOrCenter(menu);
             else tap(0.08f, 0.083f); // Unlabeled hamburger in the provided main-screen image.
@@ -683,6 +723,13 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void handleOpenLogin(AccessibilityNodeInfo root) {
+        // Start directly at the profile login entry. Only an actually logged-in
+        // My page (for example from yesterday's last account) needs logout.
+        if (accountIndex == 0 && !loginAttemptedThisRun
+                && contains(root, "나의 신세계") && contains(root, "안녕하세요")) {
+            beginLogoutForNextAccount();
+            return;
+        }
         // Some app builds show a logout confirmation dialog. Complete the
         // required action, then continue directly to the profile/login entry.
         if (findVisibleContains(root, "로그아웃") != null) {
@@ -713,7 +760,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             scheduleProcess(850L);
             return;
         }
-        if (loginBackAttempts++ < 3) {
+        if (SystemClock.uptimeMillis() - targetLaunchedAt < 4000L) {
+            scheduleProcess(400L);
+        } else if (loginBackAttempts++ < 3) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             scheduleProcess(700L);
         } else {
@@ -727,7 +776,6 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         logoutAttempts = 0;
         logoutBackAttempts = 0;
         logoutScrolls = 0;
-        sessionProbeStarted = true;
         stageReadyAt = SystemClock.uptimeMillis() + 500L;
         accountStartedAt = SystemClock.uptimeMillis();
         scheduleProcess(500L);
@@ -942,6 +990,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo label = findVisibleExact(root, "자동 로그인");
         if (label == null) label = findVisibleExact(root, "자동로그인");
         if (label == null) return null;
+        return findCheckboxForLabel(root, label);
+    }
+
+    private AccessibilityNodeInfo findCheckboxForLabel(AccessibilityNodeInfo root, AccessibilityNodeInfo label) {
         if (label.isCheckable()) return label;
 
         Rect labelBounds = new Rect();
@@ -956,8 +1008,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (bounds.height() > getResources().getDisplayMetrics().heightPixels * 0.16f) break;
         }
 
-        // In the supplied login screen the checkbox is immediately left of
-        // its text, between the password field and the disabled login button.
+        // Find only the checkable control alongside this label, avoiding
+        // unrelated controls elsewhere on the page or behind a popup.
         ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
         queue.add(root);
         AccessibilityNodeInfo closest = null;
@@ -970,7 +1022,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 Rect bounds = new Rect();
                 node.getBoundsInScreen(bounds);
                 int vertical = Math.abs(bounds.centerY() - labelBounds.centerY());
-                int horizontal = Math.abs(bounds.centerX() - labelBounds.left);
+                int horizontal = bounds.centerX() < labelBounds.left
+                        ? labelBounds.left - bounds.centerX()
+                        : Math.max(0, bounds.centerX() - labelBounds.right);
                 if (!bounds.isEmpty() && vertical < height * 0.035f
                         && horizontal < width * 0.18f && horizontal + vertical < closestDistance) {
                     closest = node;
