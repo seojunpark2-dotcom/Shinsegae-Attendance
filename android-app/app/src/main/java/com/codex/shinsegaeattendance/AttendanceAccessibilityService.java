@@ -33,12 +33,11 @@ import java.util.List;
 
 public class AttendanceAccessibilityService extends AccessibilityService {
     private static final String TARGET_PACKAGE = "com.F1.ShinSG";
-    private static final long EVENT_DEBOUNCE_MS = 250L;
-    private static final long STARTUP_WAIT_MS = 500L;
+    private static final long EVENT_DEBOUNCE_MS = 120L;
+    private static final long STARTUP_WAIT_MS = 300L;
     private static final long FOREGROUND_TIMEOUT_MS = 12000L;
-    private static final long SHORT_WAIT_MS = 650L;
-    private static final long PAGE_WAIT_MS = 1600L;
-    private static final long RESULT_WAIT_MS = 2200L;
+    private static final long SHORT_WAIT_MS = 400L;
+    private static final long RESULT_WAIT_MS = 650L;
     private static final int STAGE_HOME = 0;
     private static final int STAGE_WALLET = 1;
     private static final int STAGE_DETAIL = 2;
@@ -397,7 +396,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 && !loginKeyboardDismissed && isInputMethodVisible()) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             loginKeyboardDismissed = true;
-            scheduleProcess(500L);
+            scheduleProcess(250L);
             return;
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
@@ -476,6 +475,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         // The same calendar title is shown both on the wallet card and as the
         // detail-page header. Once the card is opened, never click that title
         // again; immediately scroll the detail page toward its apply button.
+        if (stage == STAGE_RESULT) {
+            // Faster result checks must not submit the attendance twice while
+            // the server response is still loading.
+            scheduleProcess(SHORT_WAIT_MS);
+            return;
+        }
         if (stage == STAGE_DETAIL
                 && !contains(root, "이벤트 기간")
                 && (contains(root, "내 리워드") || contains(root, "신백리워드"))) {
@@ -505,7 +510,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 // only once and only a short distance so we never pass it.
                 detailAttempts++;
                 swipe(0.50f, 0.66f, 0.50f, 0.51f, 280);
-                scheduleProcess(700L);
+                scheduleProcess(400L);
             } else if (detailAttempts++ < 8) {
                 // Do not scroll again. Give the WebView a moment to expose the
                 // button after the single short movement.
@@ -521,15 +526,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             AccessibilityNodeInfo calendar = findVisibleContains(root, "신세계 리워드 캘린더");
             if (calendar != null) {
                 stage = STAGE_DETAIL;
-                stageReadyAt = SystemClock.uptimeMillis() + 900L;
+                stageReadyAt = SystemClock.uptimeMillis() + 450L;
                 detailAttempts = 0;
                 detailLoadAttempts = 0;
                 clickNodeOrCenter(calendar);
-                scheduleProcess(900L);
+                scheduleProcess(450L);
                 return;
             }
-            if (carouselAttempts++ < 5) {
-                swipe(0.78f, 0.68f, 0.20f, 0.68f, 450);
+            if (carouselAttempts++ < 8) {
+                swipe(0.78f, 0.68f, 0.20f, 0.68f, 250);
                 scheduleProcess(SHORT_WAIT_MS);
             } else {
                 fail("리워드 캘린더 카드를 찾지 못했습니다. 앱 화면이 변경되었을 수 있습니다.");
@@ -540,9 +545,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         if (contains(root, "MY SHINSEGAE") || contains(root, "온라인쇼핑")) {
             // Current app build exposes the R tab as an unlabeled second item.
             stage = STAGE_WALLET;
-            stageReadyAt = SystemClock.uptimeMillis() + 900L;
+            stageReadyAt = SystemClock.uptimeMillis() + 450L;
             tap(0.271f, 0.892f);
-            scheduleProcess(900L);
+            scheduleProcess(450L);
             return;
         }
 
@@ -567,7 +572,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
             clickNodeOrCenter(checkbox);
             adOptOutTapped = true;
-            scheduleProcess(400L);
+            scheduleProcess(200L);
             return true;
         }
         if (checkbox == null && !adOptOutTapped && !label.isSelected()) {
@@ -575,7 +580,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             // never toggle it repeatedly when checked state is unavailable.
             clickNodeOrCenter(label);
             adOptOutTapped = true;
-            scheduleProcess(400L);
+            scheduleProcess(200L);
             return true;
         }
         AccessibilityNodeInfo close = findVisibleExact(root, "닫기");
@@ -585,7 +590,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return true;
         }
         if (close != null) clickNodeOrCenter(close);
-        scheduleProcess(500L);
+        scheduleProcess(300L);
         return true;
     }
 
@@ -848,10 +853,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         loginAutoControlWaits = 0;
         loginOpenAttempts = 0;
         loginBackAttempts = 0;
-        stageReadyAt = SystemClock.uptimeMillis() + 650L;
+        stageReadyAt = SystemClock.uptimeMillis() + 300L;
         accountStartedAt = SystemClock.uptimeMillis();
         handler.removeCallbacks(processRunnable);
-        scheduleProcess(650L);
+        scheduleProcess(300L);
     }
 
     private void handleOpenLogin(AccessibilityNodeInfo root) {
@@ -877,19 +882,19 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         boolean mainPage = contains(root, "MY SHINSEGAE")
                 || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
         if (mainPage) {
-            if (++loginOpenAttempts > 5) {
+            if (++loginOpenAttempts > 9) {
                 fail("메인 화면의 사람 아이콘을 눌러도 로그인 요청이 나타나지 않았습니다. 다른 계정의 출석은 진행하지 않았습니다.");
                 return;
             }
             tap(0.875f, 0.892f);
-            scheduleProcess(850L);
+            scheduleProcess(450L);
             return;
         }
         if (findVisibleExact(root, "환경설정") != null) {
             AccessibilityNodeInfo home = findVisibleExact(root, "홈");
             if (home != null) clickNodeOrCenter(home);
             else tap(0.63f, 0.918f);
-            scheduleProcess(850L);
+            scheduleProcess(450L);
             return;
         }
         if (SystemClock.uptimeMillis() - targetLaunchedAt < 4000L) {
@@ -964,11 +969,11 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                     else tap(0.63f, 0.918f);
                 }
                 stage = STAGE_HOME;
-                stageReadyAt = SystemClock.uptimeMillis() + 700L;
-                scheduleProcess(700L);
+                stageReadyAt = SystemClock.uptimeMillis() + 350L;
+                scheduleProcess(350L);
                 return true;
             }
-            if (++loginWaitAttempts > 25) {
+            if (++loginWaitAttempts > 41) {
                 fail("로그인 버튼을 누른 뒤에도 로그인 화면이 유지됩니다. 계정 정보 또는 추가 인증을 확인해주세요.");
                 return true;
             }
@@ -986,12 +991,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 if (confirmation != null) {
                     clickNodeOrCenter(confirmation);
                     loginPromptClicked = true;
-                    stageReadyAt = SystemClock.uptimeMillis() + 650L;
-                    scheduleProcess(650L);
+                    stageReadyAt = SystemClock.uptimeMillis() + 350L;
+                    scheduleProcess(350L);
                     return true;
                 }
             }
-            if (++loginWaitAttempts > 25) {
+            if (++loginWaitAttempts > 41) {
                 fail("로그인이 필요하다는 팝업에서 ‘예’를 누른 뒤에도 로그인 화면이 열리지 않았습니다.");
                 return true;
             }
@@ -1015,8 +1020,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 loginSubmitted = true;
                 loginAttemptedThisRun = true;
                 loginWaitAttempts = 0;
-                stageReadyAt = SystemClock.uptimeMillis() + 1300L;
-                scheduleProcess(1300L);
+                stageReadyAt = SystemClock.uptimeMillis() + 650L;
+                scheduleProcess(650L);
                 return true;
             }
             if (++loginWaitAttempts > 12) {
@@ -1045,12 +1050,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginFieldsFilled = true;
             loginKeyboardDismissed = false;
             loginWaitAttempts = 0;
-            stageReadyAt = SystemClock.uptimeMillis() + 700L;
-            scheduleProcess(700L);
+            stageReadyAt = SystemClock.uptimeMillis() + 350L;
+            scheduleProcess(350L);
             return true;
         }
 
-        if (++loginWaitAttempts > 25) {
+        if (++loginWaitAttempts > 41) {
             fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
             return true;
         }
@@ -1111,7 +1116,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 captchaResubmitted = true;
                 endHumanVerification();
                 loginWaitAttempts = 0;
-                scheduleProcess(1300L);
+                scheduleProcess(650L);
                 return true;
             }
         }
