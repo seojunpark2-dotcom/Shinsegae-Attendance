@@ -75,6 +75,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private long humanVerificationStartedAt;
     private boolean verificationCurtainSuspended;
     private boolean captchaResubmitted;
+    private boolean verificationVibrated;
+    private boolean humanVerificationComplete;
     private boolean loginAttemptedThisRun;
     private boolean loginKeyboardDismissed;
     private int loginPasswordCenterY;
@@ -255,6 +257,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         humanVerificationStartedAt = 0L;
         verificationCurtainSuspended = false;
         captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
         loginAttemptedThisRun = false;
         loginKeyboardDismissed = false;
         loginPasswordCenterY = -1;
@@ -414,6 +418,22 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
         foregroundMissingSince = 0L;
+
+        // Observe the CAPTCHA entry immediately, even during the wait after
+        // clicking Login. Do not wait for an image challenge to appear.
+        if (stage == STAGE_LOGIN && loginSubmitted) {
+            AccessibilityNodeInfo robot = findRobotControl(root);
+            if (robot != null && !captchaResubmitted) {
+                beginHumanVerification();
+                if (!verificationVibrated) {
+                    Notifier.vibrateVerification(this);
+                    verificationVibrated = true;
+                }
+                if (isHumanVerificationComplete(root, robot, findCheckboxForLabel(root, robot))) {
+                    humanVerificationComplete = true;
+                }
+            }
+        }
 
         long waitForStage = stageReadyAt - SystemClock.uptimeMillis();
         if (waitForStage > 0) {
@@ -732,6 +752,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void beginLoginForCurrentAccount() {
         endHumanVerification();
         captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
         stage = STAGE_OPEN_LOGIN;
         carouselAttempts = 0;
         detailAttempts = 0;
@@ -805,6 +827,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void beginLogoutForNextAccount() {
         endHumanVerification();
         captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
         stage = STAGE_LOGOUT;
         logoutStep = 0;
         logoutAttempts = 0;
@@ -953,31 +977,31 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private boolean handleHumanVerification(AccessibilityNodeInfo root) {
-        AccessibilityNodeInfo robotLabel = findVisibleAnyContains(root,
-                "로봇이 아닙니다", "로봇이아닙니다", "I'm not a robot", "I’m not a robot");
+        AccessibilityNodeInfo robotLabel = findRobotControl(root);
         AccessibilityNodeInfo robotCheckbox = robotLabel == null
                 ? null : findCheckboxForLabel(root, robotLabel);
         boolean additionalAuth = findVisibleAnyContains(root,
                 "인증번호", "추가 인증", "보안문자", "reCAPTCHA") != null;
         boolean checked = isHumanVerificationComplete(root, robotLabel, robotCheckbox);
+        boolean explicitlyUnchecked = !checked && robotCheckbox != null
+                && robotCheckbox.isCheckable() && !robotCheckbox.isChecked();
+        if (explicitlyUnchecked) {
+            humanVerificationComplete = false;
+            if (captchaResubmitted) verificationVibrated = false;
+            captchaResubmitted = false;
+        }
+        if (checked) humanVerificationComplete = true;
         if (!awaitingHumanVerification && robotLabel == null && !additionalAuth) {
             captchaResubmitted = false;
+            humanVerificationComplete = false;
             return false;
         }
-        if (captchaResubmitted && checked && !awaitingHumanVerification) return false;
+        if (captchaResubmitted && !awaitingHumanVerification) return false;
 
-        if (!awaitingHumanVerification) {
-            awaitingHumanVerification = true;
-            humanVerificationStartedAt = SystemClock.uptimeMillis();
-            verificationCurtainSuspended = curtainView != null;
-            removePrivacyCurtain();
-            if (wakeLock != null) {
-                wakeLock.acquire(HUMAN_VERIFICATION_TIMEOUT_MS
-                        + Math.max(3, runAccounts.size() * 3) * 60000L);
-            }
-            if (!checked) {
-                Notifier.vibrateVerification(this);
-            }
+        beginHumanVerification();
+        if (robotLabel != null && !verificationVibrated && !checked) {
+            Notifier.vibrateVerification(this);
+            verificationVibrated = true;
         }
 
         // A user may finish the entire login themselves. Only a recognized
@@ -991,17 +1015,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginWaitAttempts = 0;
             return false;
         }
-        if (checked && !captchaResubmitted) {
-            // CAPTCHA may move the form vertically. Use the current password
-            // field rather than the Y coordinate saved before it appeared.
-            LoginFields currentFields = findLoginFields(root);
-            AccessibilityNodeInfo login = currentFields != null
-                    ? findLoginButton(root, currentFields.password)
-                    : findLoginButton(root, loginPasswordCenterY);
+        if (humanVerificationComplete && !captchaResubmitted) {
+            AccessibilityNodeInfo login = findVerificationLoginButton(root);
             if (login != null && login.isEnabled()) {
                 // The human completed CAPTCHA; interact only with the app's
                 // login button, never with the CAPTCHA or its challenge.
-                if (!login.performAction(AccessibilityNodeInfo.ACTION_CLICK) && !tapLoginButton(login)) {
+                // Custom WebView buttons can acknowledge ACTION_CLICK without
+                // submitting. Tap the confirmed app submit control directly.
+                if (!tapLoginButton(login)) {
                     fail("직접 인증 후 로그인 버튼을 누르지 못했습니다.");
                     return true;
                 }
@@ -1012,11 +1033,83 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return true;
             }
         }
-        if (!checked) captchaResubmitted = false;
         // An unreadable/missing checkbox is not proof of verification. Keep
         // waiting so the user can finish authentication/login themselves.
         scheduleProcess(1000L);
         return true;
+    }
+
+    private void beginHumanVerification() {
+        if (awaitingHumanVerification) return;
+        awaitingHumanVerification = true;
+        humanVerificationStartedAt = SystemClock.uptimeMillis();
+        verificationCurtainSuspended = curtainView != null;
+        removePrivacyCurtain();
+        if (wakeLock != null) wakeLock.acquire(HUMAN_VERIFICATION_TIMEOUT_MS
+                + Math.max(3, runAccounts.size() * 3) * 60000L);
+    }
+
+    private AccessibilityNodeInfo findRobotControl(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            String id = node.getViewIdResourceName();
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (node.isVisibleToUser() && !bounds.isEmpty()
+                    && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.20f
+                    && (isRobotLabel(node.getText())
+                    || isRobotLabel(node.getContentDescription())
+                    || (id != null && id.endsWith("recaptcha-anchor")))) return node;
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return null;
+    }
+
+    private boolean isRobotLabel(CharSequence value) {
+        if (value == null) return false;
+        String label = value.toString().replaceAll("\\s+", "").replace("’", "'")
+                .toLowerCase(java.util.Locale.ROOT);
+        return label.contains("로봇이아닙니다") || label.contains("i'mnotarobot");
+    }
+
+    private AccessibilityNodeInfo findVerificationLoginButton(AccessibilityNodeInfo root) {
+        // Select a wide submit control below the header. CAPTCHA can change
+        // field positions or add editable controls, invalidating saved bounds.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        AccessibilityNodeInfo fallback = null;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            String text = node.getText() == null ? "" : node.getText().toString().trim();
+            String description = node.getContentDescription() == null
+                    ? "" : node.getContentDescription().toString().trim();
+            if (node.isVisibleToUser() && ("로그인".equals(text) || "로그인하기".equals(text)
+                    || "로그인".equals(description) || "로그인하기".equals(description))) {
+                AccessibilityNodeInfo candidate = node;
+                for (int i = 0; i < 4 && candidate != null; i++, candidate = candidate.getParent()) {
+                    Rect bounds = new Rect();
+                    candidate.getBoundsInScreen(bounds);
+                    if (candidate.isVisibleToUser() && candidate.isEnabled()
+                            && bounds.width() > width * 0.40f && bounds.height() > 0
+                            && bounds.height() < height * 0.15f && bounds.centerY() > height * 0.25f) {
+                        if (candidate.isClickable()) return candidate;
+                        fallback = candidate;
+                    }
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return fallback;
     }
 
     private boolean isHumanVerificationComplete(AccessibilityNodeInfo root,
@@ -1063,6 +1156,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private boolean hasVerifiedState(AccessibilityNodeInfo node) {
         if (node == null || !node.isVisibleToUser()) return false;
+        if (node.isChecked()) return true;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
                 && VerificationState.isComplete(node.getStateDescription())) return true;
         return VerificationState.isComplete(node.getText())

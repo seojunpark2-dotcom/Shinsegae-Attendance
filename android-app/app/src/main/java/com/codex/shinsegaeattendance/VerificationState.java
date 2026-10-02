@@ -17,11 +17,15 @@ final class VerificationState {
                 || state.contains("확인되지") || state.contains("미확인")
                 || state.contains("인증되지") || state.contains("미인증")
                 || state.contains("체크 해제") || state.contains("선택 해제")
-                || state.contains("미선택") || state.contains("인증 미완료")) return false;
+                || state.contains("미선택") || state.contains("인증 미완료")
+                || state.contains("성공하지")) return false;
         return state.matches("(?s).*\\b(checked|verified)\\b.*")
                 || state.contains("체크됨") || state.contains("체크 됨")
                 || state.contains("선택됨") || state.contains("선택 됨")
                 || state.contains("확인됨") || state.contains("확인 됨")
+                || state.contains("확인되었습니다") || state.contains("확인 완료")
+                || state.contains("선택된 상태") || state.contains("체크된 상태")
+                || state.contains("인증 성공") || state.contains("인증에 성공")
                 || state.contains("인증 완료") || state.contains("인증완료");
     }
 }

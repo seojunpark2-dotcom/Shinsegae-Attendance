@@ -45,8 +45,7 @@ public final class Notifier {
     public static void vibrateVerification(Context context) {
         Vibrator vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
         if (vibrator == null || !vibrator.hasVibrator()) return;
-        VibrationEffect effect = VibrationEffect.createWaveform(
-                new long[]{0L, 400L, 180L, 400L, 180L, 600L}, -1);
+        VibrationEffect effect = VibrationEffect.createOneShot(1500L, VibrationEffect.DEFAULT_AMPLITUDE);
         AudioAttributes attributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
