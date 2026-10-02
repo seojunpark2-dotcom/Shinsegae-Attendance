@@ -179,7 +179,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void startAutomation(boolean manual) {
         if (running) {
             if (awaitingHumanVerification) {
-                Notifier.showVerification(this, "직접 인증 대기 중", "신세계 앱에서 인증을 완료해주세요. 완료가 확인되면 자동 출석을 이어갑니다.");
+                Notifier.vibrateVerification(this);
                 return;
             }
             long runningFor = SystemClock.uptimeMillis() - runStartedAt;
@@ -959,7 +959,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 ? null : findCheckboxForLabel(root, robotLabel);
         boolean additionalAuth = findVisibleAnyContains(root,
                 "인증번호", "추가 인증", "보안문자", "reCAPTCHA") != null;
-        boolean checked = robotCheckbox != null && robotCheckbox.isChecked();
+        boolean checked = isHumanVerificationComplete(root, robotLabel, robotCheckbox);
         if (!awaitingHumanVerification && robotLabel == null && !additionalAuth) {
             captchaResubmitted = false;
             return false;
@@ -976,8 +976,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                         + Math.max(3, runAccounts.size() * 3) * 60000L);
             }
             if (!checked) {
-                Notifier.showVerification(this, "신세계 직접 인증 필요",
-                        "신세계 앱에서 ‘로봇이 아닙니다’를 직접 체크해주세요. 완료가 확인되면 로그인과 출석을 이어갑니다. 최대 10분 기다립니다.");
+                Notifier.vibrateVerification(this);
             }
         }
 
@@ -993,7 +992,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return false;
         }
         if (checked && !captchaResubmitted) {
-            AccessibilityNodeInfo login = findLoginButton(root, loginPasswordCenterY);
+            // CAPTCHA may move the form vertically. Use the current password
+            // field rather than the Y coordinate saved before it appeared.
+            LoginFields currentFields = findLoginFields(root);
+            AccessibilityNodeInfo login = currentFields != null
+                    ? findLoginButton(root, currentFields.password)
+                    : findLoginButton(root, loginPasswordCenterY);
             if (login != null && login.isEnabled()) {
                 // The human completed CAPTCHA; interact only with the app's
                 // login button, never with the CAPTCHA or its challenge.
@@ -1013,6 +1017,56 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         // waiting so the user can finish authentication/login themselves.
         scheduleProcess(1000L);
         return true;
+    }
+
+    private boolean isHumanVerificationComplete(AccessibilityNodeInfo root,
+            AccessibilityNodeInfo label, AccessibilityNodeInfo checkbox) {
+        if (checkbox != null && checkbox.isChecked()) return true;
+        if (hasVerifiedState(checkbox) || hasVerifiedState(label)) return true;
+        if (label != null) {
+            Rect labelBounds = new Rect();
+            label.getBoundsInScreen(labelBounds);
+            for (AccessibilityNodeInfo parent = label.getParent(); parent != null; parent = parent.getParent()) {
+                Rect bounds = new Rect();
+                parent.getBoundsInScreen(bounds);
+                if (bounds.height() > getResources().getDisplayMetrics().heightPixels * 0.15f) break;
+                if (hasVerifiedState(parent)) return true;
+            }
+            // WebView controls can expose checked state in their description
+            // even when Android does not mark the node as checkable.
+            ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+            queue.add(root);
+            while (!queue.isEmpty()) {
+                AccessibilityNodeInfo node = queue.removeFirst();
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                boolean besideLabel = !bounds.isEmpty()
+                        && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.09f
+                        && Math.abs(bounds.centerY() - labelBounds.centerY())
+                            < getResources().getDisplayMetrics().heightPixels * 0.035f
+                        && bounds.centerX() <= labelBounds.right
+                        && bounds.centerX() >= labelBounds.left
+                            - getResources().getDisplayMetrics().widthPixels * 0.18f;
+                if (node.isVisibleToUser() && besideLabel && hasVerifiedState(node)) return true;
+                for (int i = 0; i < node.getChildCount(); i++) {
+                    AccessibilityNodeInfo child = node.getChild(i);
+                    if (child != null) queue.add(child);
+                }
+            }
+        }
+        // Some CAPTCHA widgets replace their checkbox with a completion text.
+        // Its disappearance or an enabled login button alone is not proof.
+        return awaitingHumanVerification && findVisibleAnyContains(root,
+                "reCAPTCHA 인증 완료", "로봇 인증 완료", "로봇이 아님이 확인",
+                "Verification complete", "You are verified", "You have been verified") != null;
+    }
+
+    private boolean hasVerifiedState(AccessibilityNodeInfo node) {
+        if (node == null || !node.isVisibleToUser()) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && VerificationState.isComplete(node.getStateDescription())) return true;
+        return VerificationState.isComplete(node.getText())
+                || VerificationState.isComplete(node.getContentDescription());
     }
 
     private void endHumanVerification() {

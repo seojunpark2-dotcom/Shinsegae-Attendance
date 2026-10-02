@@ -8,6 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.media.AudioAttributes;
 
 public final class Notifier {
     // Android does not allow raising the importance of an existing channel.
@@ -39,24 +42,24 @@ public final class Notifier {
         showOnChannel(context, REMINDER_CHANNEL_ID, title, message);
     }
 
-    public static void showVerification(Context context, String title, String message) {
-        Intent open = context.getPackageManager().getLaunchIntentForPackage("com.F1.ShinSG");
-        if (open == null) open = new Intent(context, MainActivity.class);
-        open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
-                | Intent.FLAG_ACTIVITY_NO_ANIMATION);
-        showOnChannel(context, RESULT_CHANNEL_ID, title, message, open);
+    public static void vibrateVerification(Context context) {
+        Vibrator vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        if (vibrator == null || !vibrator.hasVibrator()) return;
+        VibrationEffect effect = VibrationEffect.createWaveform(
+                new long[]{0L, 400L, 180L, 400L, 180L, 600L}, -1);
+        AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+        vibrator.vibrate(effect, attributes);
     }
 
     private static void showOnChannel(Context context, String channelId, String title, String message) {
-        showOnChannel(context, channelId, title, message, new Intent(context, MainActivity.class));
-    }
-
-    private static void showOnChannel(Context context, String channelId, String title, String message, Intent open) {
         createChannels(context);
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED) return;
 
+        Intent open = new Intent(context, MainActivity.class);
         PendingIntent pending = PendingIntent.getActivity(
                 context, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
