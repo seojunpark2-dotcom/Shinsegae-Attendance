@@ -590,7 +590,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void handleLogout(AccessibilityNodeInfo root) {
-        // The user-provided screens show: main hamburger -> all menu (scroll
+        // The user-provided screens show: calendar bottom-right menu -> all menu (scroll
         // to bottom) -> 설정 -> 환경설정 -> 로그아웃, then immediately begin
         // the next login flow without a separate logout verification pass.
         boolean loginForm = findLoginFields(root) != null;
@@ -608,8 +608,16 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 || findVisibleExact(root, "나의 선택 점포") != null;
         boolean mainPage = contains(root, "MY SHINSEGAE")
                 || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (logoutStep == 6 && !settingsPage && !menuPage) {
+            openCalendarMenu(root);
+            logoutStep = 2;
+            scheduleProcess(450L);
+            return;
+        }
         if (settingsPage) {
             logoutStep = 4;
+        } else if (logoutStep == 6 && menuPage) {
+            logoutStep = 2;
         } else if (logoutStep == 0) {
             if (menuPage) logoutStep = 2;
             else if (mainPage) logoutStep = 1;
@@ -654,15 +662,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 clickNodeOrCenter(settings);
                 logoutStep = 3;
                 logoutAttempts = 0;
-                scheduleProcess(800L);
+                scheduleProcess(450L);
                 return;
             }
-            if (logoutScrolls++ >= 8) {
+            if (logoutScrolls++ >= 3) {
                 fail("전체 메뉴를 내려도 맨 아래의 설정 버튼을 찾지 못했습니다.");
                 return;
             }
-            swipe(0.50f, 0.78f, 0.50f, 0.30f, 420L);
-            scheduleProcess(650L);
+            scrollMenuToBottom(root);
+            scheduleProcess(600L);
             return;
         }
 
@@ -719,6 +727,60 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
         }
         return null;
+    }
+
+    private void scrollMenuToBottom(AccessibilityNodeInfo root) {
+        // Recycler/list controls can jump directly to the final item. A
+        // WebView usually lacks this action, so use a fast long fling there.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo scroll = null;
+        int largestArea = 0;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            int area = bounds.width() * bounds.height();
+            if (node.isVisibleToUser() && node.isScrollable() && area > largestArea) {
+                scroll = node;
+                largestArea = area;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        if (scroll != null) {
+            AccessibilityNodeInfo.CollectionInfo collection = scroll.getCollectionInfo();
+            if (collection != null && collection.getRowCount() > 1
+                    && scroll.getActionList().contains(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION)) {
+                Bundle position = new Bundle();
+                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT,
+                        collection.getRowCount() - 1);
+                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_COLUMN_INT, 0);
+                if (scroll.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position)) return;
+            }
+        }
+        // Keep the gesture in the content area below the fixed menu header.
+        // Its velocity gives the WebView momentum to reach the footer at once.
+        swipe(0.50f, 0.89f, 0.50f, 0.24f, 130L);
+    }
+
+    private void openCalendarMenu(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
+        if (menu == null) menu = findVisibleExact(root, "메뉴");
+        if (menu != null) {
+            Rect bounds = new Rect();
+            menu.getBoundsInScreen(bounds);
+            if (bounds.centerX() > getResources().getDisplayMetrics().widthPixels * 0.75f
+                    && bounds.centerY() > getResources().getDisplayMetrics().heightPixels * 0.80f) {
+                clickNodeOrCenter(menu);
+                return;
+            }
+        }
+        // Persistent bottom-right hamburger shown in the provided app screens.
+        tap(0.93f, 0.918f);
     }
 
     private AccessibilityNodeInfo findCheckableBeside(AccessibilityNodeInfo root, AccessibilityNodeInfo label) {
@@ -825,18 +887,22 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginLogoutForNextAccount() {
+        beginLogoutForNextAccount(false);
+    }
+
+    private void beginLogoutForNextAccount(boolean fromCalendar) {
         endHumanVerification();
         captchaResubmitted = false;
         verificationVibrated = false;
         humanVerificationComplete = false;
         stage = STAGE_LOGOUT;
-        logoutStep = 0;
+        logoutStep = fromCalendar ? 6 : 0;
         logoutAttempts = 0;
         logoutBackAttempts = 0;
         logoutScrolls = 0;
         stageReadyAt = SystemClock.uptimeMillis() + 500L;
         accountStartedAt = SystemClock.uptimeMillis();
-        scheduleProcess(500L);
+        scheduleProcess(fromCalendar ? 0L : 500L);
     }
 
     private boolean handleLogin(AccessibilityNodeInfo root) {
@@ -1446,7 +1512,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             accountResults.add((accountIndex + 1) + "번째 성공");
             if (accountIndex + 1 < runAccounts.size()) {
                 accountIndex++;
-                beginLogoutForNextAccount();
+                beginLogoutForNextAccount(true);
             } else {
                 finishBatch(null);
             }
