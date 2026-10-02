@@ -58,6 +58,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private String lastForegroundPackageName;
     private boolean running;
     private int carouselAttempts;
+    private int walletEntryAttempts;
     private int detailAttempts;
     private int detailLoadAttempts;
     private boolean targetLaunchRequested;
@@ -234,6 +235,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         runStartedAt = SystemClock.uptimeMillis();
         accountStartedAt = runStartedAt;
         carouselAttempts = 0;
+        walletEntryAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
         targetLaunchRequested = false;
@@ -521,6 +523,22 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
+        // A requested wallet stage is not proof that the R tap succeeded.
+        // Never swipe the home banner while that screen remains visible.
+        boolean homeVisible = findVisibleContains(root, "MY SHINSEGAE") != null
+                || (findVisibleExact(root, "온라인쇼핑") != null
+                    && findVisibleExact(root, "백화점") != null);
+        if (homeVisible) {
+            if (++walletEntryAttempts > 6) {
+                fail("메인 화면의 R 버튼으로 월렛 메뉴에 진입하지 못했습니다. 메인 화면에서는 스크롤하지 않았습니다.");
+                return;
+            }
+            stage = STAGE_WALLET;
+            tapWalletEntry(root);
+            scheduleProcess(750L);
+            return;
+        }
+
         if (stage == STAGE_WALLET || contains(root, "내 리워드") || contains(root, "신백리워드")) {
             stage = STAGE_WALLET;
             AccessibilityNodeInfo calendar = findVisibleContains(root, "신세계 리워드 캘린더");
@@ -542,16 +560,47 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
-        if (contains(root, "MY SHINSEGAE") || contains(root, "온라인쇼핑")) {
-            // Current app build exposes the R tab as an unlabeled second item.
-            stage = STAGE_WALLET;
-            stageReadyAt = SystemClock.uptimeMillis() + 450L;
-            tap(0.271f, 0.892f);
-            scheduleProcess(450L);
-            return;
-        }
-
         scheduleProcess(SHORT_WAIT_MS);
+    }
+
+    private void tapWalletEntry(AccessibilityNodeInfo root) {
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            String label = ((node.getText() == null ? "" : node.getText().toString())
+                    + " " + (node.getContentDescription() == null ? "" : node.getContentDescription().toString())).trim();
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            boolean walletLabel = label.matches("(?i)R(?:\\s+R)?") || label.contains("월렛")
+                    || label.contains("리워드") || label.toLowerCase(java.util.Locale.ROOT).contains("wallet");
+            if (walletLabel && node.isVisibleToUser() && !bounds.isEmpty()
+                    && bounds.centerX() > width * 0.17f && bounds.centerX() < width * 0.36f
+                    && bounds.centerY() > height * 0.80f && bounds.centerY() < height * 0.95f) {
+                // Tap the icon itself; clicking an ancestor can hit the whole
+                // navigation container rather than its R control.
+                tapPixels(bounds.centerX(), bounds.centerY());
+                return;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        // Unlabeled R icon: align with the exposed middle home navigation tab.
+        AccessibilityNodeInfo middle = findVisibleContains(root, "MY SHINSEGAE");
+        if (middle != null) {
+            Rect bounds = new Rect();
+            middle.getBoundsInScreen(bounds);
+            if (!bounds.isEmpty() && bounds.centerY() > height * 0.80f
+                    && bounds.centerY() < height * 0.95f) {
+                tapPixels(Math.round(width * 0.271f), bounds.centerY());
+                return;
+            }
+        }
+        tap(0.271f, 0.892f);
     }
 
     private boolean handleAdvertisement(AccessibilityNodeInfo root) {
@@ -839,6 +888,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         humanVerificationComplete = false;
         stage = STAGE_OPEN_LOGIN;
         carouselAttempts = 0;
+        walletEntryAttempts = 0;
         detailAttempts = 0;
         detailLoadAttempts = 0;
         foregroundMissingSince = 0L;
