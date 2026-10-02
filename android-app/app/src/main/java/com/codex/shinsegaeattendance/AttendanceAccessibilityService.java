@@ -665,12 +665,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 scheduleProcess(450L);
                 return;
             }
-            if (logoutScrolls++ >= 3) {
+            if (logoutScrolls++ >= 12) {
                 fail("전체 메뉴를 내려도 맨 아래의 설정 버튼을 찾지 못했습니다.");
                 return;
             }
             scrollMenuToBottom(root);
-            scheduleProcess(600L);
+            scheduleProcess(850L);
             return;
         }
 
@@ -719,7 +719,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 Rect bounds = new Rect();
                 node.getBoundsInScreen(bounds);
                 if (!bounds.isEmpty() && bounds.centerX() < width * 0.40f
-                        && bounds.centerY() > height * 0.62f) return node;
+                        && bounds.centerY() > height * 0.24f
+                        && bounds.centerY() < height * 0.94f) return node;
             }
             for (int i = 0; i < node.getChildCount(); i++) {
                 AccessibilityNodeInfo child = node.getChild(i);
@@ -752,7 +753,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
         if (scroll != null) {
             AccessibilityNodeInfo.CollectionInfo collection = scroll.getCollectionInfo();
-            if (collection != null && collection.getRowCount() > 1
+            if (logoutScrolls == 1 && collection != null && collection.getRowCount() > 1
                     && scroll.getActionList().contains(
                         AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION)) {
                 Bundle position = new Bundle();
@@ -761,10 +762,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_COLUMN_INT, 0);
                 if (scroll.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position)) return;
             }
+            // Alternate native scrolling with gestures: some WebViews report
+            // success for an action without actually moving their content.
+            if (logoutScrolls % 2 == 0
+                    && scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return;
         }
-        // Keep the gesture in the content area below the fixed menu header.
-        // Its velocity gives the WebView momentum to reach the footer at once.
-        swipe(0.50f, 0.89f, 0.50f, 0.24f, 130L);
+        // Start above the persistent bottom navigation bar, not on its icons.
+        // Keep both ends inside the scrollable content below the fixed header.
+        swipe(0.50f, 0.82f, 0.50f, 0.30f, 240L);
     }
 
     private void openCalendarMenu(AccessibilityNodeInfo root) {
