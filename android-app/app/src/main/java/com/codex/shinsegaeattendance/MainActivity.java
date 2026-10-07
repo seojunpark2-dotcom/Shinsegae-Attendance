@@ -38,6 +38,7 @@ import android.widget.Toast;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.List;
 
 public class MainActivity extends Activity {
     private static final int INK = Color.rgb(20, 20, 20);
@@ -51,7 +52,10 @@ public class MainActivity extends Activity {
     private TextView resultText;
     private TextView accessibilityState;
     private TextView alarmState;
-    private TextView accountState;
+    private TextView accountCountText;
+    private LinearLayout accountList;
+    private EditText accountUsernameInput;
+    private EditText accountPasswordInput;
     private Switch autoSwitch;
     private Switch reminderSwitch;
     private Switch privacySwitch;
@@ -62,6 +66,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // The main screen now contains several account IDs and a password
+        // field. Keep them out of screenshots and Recents thumbnails.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         prefs = getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE);
         Notifier.createChannels(this);
         hour = prefs.getInt(ScheduleManager.KEY_HOUR, 10);
@@ -165,18 +172,34 @@ public class MainActivity extends Activity {
             refresh();
         });
         settingsCard.addView(privacySwitch, matchWrap());
-        divider(settingsCard, LINE, 16);
-        LinearLayout accountRow = row();
-        LinearLayout accountWords = column();
-        accountWords.addView(text("자동 로그인 계정", 15, true, INK));
-        accountState = text("", 12, false, MUTED);
-        accountWords.addView(accountState, spaced(0, 3, 0, 0));
-        accountRow.addView(accountWords, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        Button accountButton = smallButton("관리");
-        accountButton.setOnClickListener(v -> showLoginDialog());
-        accountRow.addView(accountButton);
-        settingsCard.addView(accountRow, matchWrap());
         root.addView(settingsCard, spaced(0, 0, 0, 24));
+
+        root.addView(section("자동 출석 계정"), spaced(0, 0, 0, 10));
+        LinearLayout accountsCard = card(Color.WHITE, 20, 18);
+        accountCountText = text("", 13, false, MUTED);
+        accountsCard.addView(accountCountText);
+        accountList = column();
+        accountsCard.addView(accountList, spaced(0, 12, 0, 14));
+        accountUsernameInput = new EditText(this);
+        accountUsernameInput.setHint("신세계 앱 아이디");
+        accountUsernameInput.setSingleLine(true);
+        accountUsernameInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        accountUsernameInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        styleAccountInput(accountUsernameInput);
+        accountsCard.addView(accountUsernameInput, matchWrap());
+        accountPasswordInput = new EditText(this);
+        accountPasswordInput.setHint("비밀번호");
+        accountPasswordInput.setSingleLine(true);
+        accountPasswordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        accountPasswordInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        styleAccountInput(accountPasswordInput);
+        accountsCard.addView(accountPasswordInput, spaced(0, 9, 0, 10));
+        Button addAccount = action("계정 추가 / 비밀번호 변경", true, false);
+        addAccount.setOnClickListener(v -> saveAccount());
+        accountsCard.addView(addAccount, matchWrap());
+        TextView accountNote = text("저장된 순서대로 실행합니다. 같은 아이디를 다시 저장하면 순서는 유지되고 비밀번호만 바뀝니다.", 12, false, MUTED);
+        accountsCard.addView(accountNote, spaced(0, 10, 0, 0));
+        root.addView(accountsCard, spaced(0, 0, 0, 24));
 
         root.addView(section("시작 전 확인"), spaced(0, 0, 0, 10));
         LinearLayout permissionCard = card(Color.WHITE, 20, 18);
@@ -212,57 +235,73 @@ public class MainActivity extends Activity {
         }, hour, minute, DateFormat.is24HourFormat(this)).show();
     }
 
-    private void showLoginDialog() {
-        LinearLayout fields = column();
-        fields.setPadding(dp(22), dp(4), dp(22), 0);
-        EditText username = new EditText(this);
-        username.setHint("신세계 앱 아이디");
-        username.setSingleLine(true);
-        username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        username.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
-        fields.addView(username, matchWrap());
-        EditText password = new EditText(this);
-        password.setHint("신세계 앱 비밀번호");
-        password.setSingleLine(true);
-        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        password.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
-        fields.addView(password, matchWrap());
-        TextView note = text("입력한 계정은 이 기기에 암호화해 저장됩니다. 추가 인증은 직접 완료해야 합니다.", 12, false, MUTED);
-        fields.addView(note, spaced(0, 12, 0, 0));
+    private void styleAccountInput(EditText input) {
+        input.setTextSize(15);
+        input.setPadding(dp(14), dp(10), dp(14), dp(10));
+        input.setBackground(shape(Color.rgb(250, 251, 250), 12, LINE, 1));
+    }
 
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("자동 로그인 계정")
-                .setView(fields)
-                .setPositiveButton("저장", null)
-                .setNeutralButton("삭제", null)
-                .setNegativeButton("닫기", null)
-                .create();
-        dialog.setOnShowListener(unused -> {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                String enteredUsername = username.getText().toString().trim();
-                String enteredPassword = password.getText().toString();
-                if (enteredUsername.isEmpty() || enteredPassword.isEmpty()) {
-                    Toast.makeText(this, "아이디와 비밀번호를 모두 입력해주세요.", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                try {
-                    LoginCredentials.save(this, enteredUsername, enteredPassword);
-                    Toast.makeText(this, "로그인 정보를 암호화해 저장했습니다.", Toast.LENGTH_SHORT).show();
-                    refresh();
-                    dialog.dismiss();
-                } catch (Exception error) {
-                    Toast.makeText(this, "로그인 정보를 저장하지 못했습니다.", Toast.LENGTH_LONG).show();
-                }
-            });
-            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
-                LoginCredentials.clear(this);
-                Toast.makeText(this, "저장된 로그인 정보를 삭제했습니다.", Toast.LENGTH_SHORT).show();
-                refresh();
-                dialog.dismiss();
-            });
-        });
-        dialog.show();
-        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+    private void saveAccount() {
+        String username = accountUsernameInput.getText().toString().trim();
+        String password = accountPasswordInput.getText().toString();
+        if (username.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "아이디와 비밀번호를 모두 입력해주세요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            boolean added = LoginCredentials.addOrUpdate(this, username, password);
+            accountUsernameInput.setText("");
+            accountPasswordInput.setText("");
+            Toast.makeText(this, added ? "계정을 저장했습니다." : "비밀번호를 변경했습니다.", Toast.LENGTH_SHORT).show();
+            refreshAccounts();
+        } catch (IllegalStateException limit) {
+            Toast.makeText(this, "계정은 최대 " + LoginCredentials.MAX_ACCOUNTS + "개까지 저장할 수 있습니다.", Toast.LENGTH_LONG).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "계정을 저장하지 못했습니다.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void refreshAccounts() {
+        accountList.removeAllViews();
+        try {
+            List<LoginCredentials.Account> accounts = LoginCredentials.readAccounts(this);
+            accountCountText.setText("" + accounts.size() + "개 저장됨 · 목록 순서대로 로그인 및 출석");
+            if (accounts.isEmpty()) {
+                accountList.addView(text("저장된 계정이 없습니다.", 14, false, MUTED));
+                return;
+            }
+            for (int i = 0; i < accounts.size(); i++) {
+                final int index = i;
+                LinearLayout item = row();
+                TextView order = text(String.format(Locale.KOREA, "%02d", i + 1), 13, true, MUTED);
+                item.addView(order, new LinearLayout.LayoutParams(dp(36), LinearLayout.LayoutParams.WRAP_CONTENT));
+                TextView username = text(accounts.get(i).username, 15, true, INK);
+                item.addView(username, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                Button delete = smallButton("삭제");
+                delete.setOnClickListener(v -> confirmDeleteAccount(index, accounts.get(index).username));
+                item.addView(delete);
+                if (i > 0) divider(accountList, LINE, 10);
+                accountList.addView(item, matchWrap());
+            }
+        } catch (Exception error) {
+            accountCountText.setText("계정 정보를 읽지 못했습니다");
+            accountList.addView(text("기기의 암호화 키를 확인하거나 계정을 다시 저장해주세요.", 13, false, MUTED));
+        }
+    }
+
+    private void confirmDeleteAccount(int index, String username) {
+        new AlertDialog.Builder(this)
+                .setTitle("계정 삭제")
+                .setMessage(username + " 계정을 목록에서 삭제할까요?")
+                .setNegativeButton("취소", null)
+                .setPositiveButton("삭제", (dialog, which) -> {
+                    try {
+                        LoginCredentials.remove(this, index);
+                        refreshAccounts();
+                    } catch (Exception error) {
+                        Toast.makeText(this, "계정을 삭제하지 못했습니다.", Toast.LENGTH_LONG).show();
+                    }
+                }).show();
     }
 
     private void enableSchedule() {
@@ -316,7 +355,7 @@ public class MainActivity extends Activity {
                 : new SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(lastAt)) + "  ·  " + result);
         accessibilityState.setText(AttendanceAccessibilityService.isEnabled(this) ? "연결됨" : "설정 필요");
         alarmState.setText(ScheduleManager.canScheduleExact(this) ? "허용됨" : "설정 필요");
-        accountState.setText(LoginCredentials.isSaved(this) ? "저장됨 · 필요할 때 자동 로그인" : "미설정 · 로그인 상태라면 필요 없음");
+        refreshAccounts();
     }
 
     private void requestNotificationPermission() {

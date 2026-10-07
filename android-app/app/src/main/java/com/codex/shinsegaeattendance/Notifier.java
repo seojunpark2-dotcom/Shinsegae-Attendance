@@ -8,6 +8,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.media.AudioAttributes;
 
 public final class Notifier {
     // Android does not allow raising the importance of an existing channel.
@@ -37,6 +40,16 @@ public final class Notifier {
 
     public static void showReminder(Context context, String title, String message) {
         showOnChannel(context, REMINDER_CHANNEL_ID, title, message);
+    }
+
+    public static void vibrateVerification(Context context) {
+        Vibrator vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        if (vibrator == null || !vibrator.hasVibrator()) return;
+        VibrationEffect effect = VibrationEffect.createOneShot(1500L, VibrationEffect.DEFAULT_AMPLITUDE);
+        AudioAttributes attributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
+        vibrator.vibrate(effect, attributes);
     }
 
     private static void showOnChannel(Context context, String channelId, String title, String message) {

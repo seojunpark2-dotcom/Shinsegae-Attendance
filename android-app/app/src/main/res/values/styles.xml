@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Attendance" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.Attendance.Base" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#141414</item>
         <item name="android:navigationBarColor">#F7F8F7</item>
         <item name="android:statusBarColor">#F7F8F7</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
     </style>
+    <style name="Theme.Attendance" parent="Theme.Attendance.Base" />
 </resources>
 

@@ -33,16 +33,21 @@ import java.util.List;
 
 public class AttendanceAccessibilityService extends AccessibilityService {
     private static final String TARGET_PACKAGE = "com.F1.ShinSG";
-    private static final long EVENT_DEBOUNCE_MS = 250L;
-    private static final long STARTUP_WAIT_MS = 3000L;
-    private static final long SHORT_WAIT_MS = 650L;
-    private static final long PAGE_WAIT_MS = 1600L;
-    private static final long RESULT_WAIT_MS = 2200L;
+    private static final long EVENT_DEBOUNCE_MS = 120L;
+    private static final long STARTUP_WAIT_MS = 300L;
+    private static final long FOREGROUND_TIMEOUT_MS = 12000L;
+    private static final long SHORT_WAIT_MS = 400L;
+    private static final long RESULT_WAIT_MS = 650L;
     private static final int STAGE_HOME = 0;
-    private static final int STAGE_WALLET = 1;
+    private static final int STAGE_ATTENDANCE_MENU = 1;
     private static final int STAGE_DETAIL = 2;
     private static final int STAGE_RESULT = 3;
     private static final int STAGE_LOGIN = 4;
+    private static final int STAGE_LOGOUT = 5;
+    private static final int STAGE_OPEN_LOGIN = 6;
+    private static final int STAGE_PARTICIPATED_EVENTS = 7;
+    private static final long ACCOUNT_TIMEOUT_MS = 120000L;
+    private static final long HUMAN_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000L;
     private static AttendanceAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
@@ -53,19 +58,47 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private String previousPackageName;
     private String lastForegroundPackageName;
     private boolean running;
-    private int carouselAttempts;
+    private int attendanceMenuAttempts;
+    private int eventListAttempts;
+    private int eventListScrolls;
+    private long eventListOpenedAt;
     private int detailAttempts;
     private int detailLoadAttempts;
-    private int foregroundLaunchAttempts;
+    private boolean targetLaunchRequested;
+    private long targetLaunchedAt;
+    private long foregroundMissingSince;
+    private boolean eventProcessScheduled;
     private int recentScanAttempts;
     private int stage;
     private int loginWaitAttempts;
     private boolean loginPromptClicked;
     private boolean loginFieldsFilled;
     private boolean loginSubmitted;
+    private boolean awaitingHumanVerification;
+    private long humanVerificationStartedAt;
+    private boolean verificationCurtainSuspended;
+    private boolean captchaResubmitted;
+    private boolean verificationVibrated;
+    private boolean humanVerificationComplete;
     private boolean loginAttemptedThisRun;
     private boolean loginKeyboardDismissed;
     private int loginPasswordCenterY;
+    private int loginAutoToggleAttempts;
+    private int loginAutoControlWaits;
+    private int loginOpenAttempts;
+    private int loginBackAttempts;
+    private List<LoginCredentials.Account> runAccounts = new ArrayList<>();
+    private final List<String> accountResults = new ArrayList<>();
+    private int accountIndex;
+    private int accountSuccessCount;
+    private long accountStartedAt;
+    private int logoutAttempts;
+    private int logoutBackAttempts;
+    private int logoutStep;
+    private int logoutScrolls;
+    private boolean adOptOutTapped;
+    private int adToggleAttempts;
+    private int adCloseAttempts;
     private long stageReadyAt;
     private long runStartedAt;
 
@@ -119,6 +152,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             running = false;
         }
         if (instance == this) instance = null;
+        runAccounts = new ArrayList<>();
         finishWakeLock();
         removePrivacyCurtain();
         super.onDestroy();
@@ -137,8 +171,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
         if (pkg != null && !TARGET_PACKAGE.contentEquals(pkg)) return;
-        handler.removeCallbacks(processRunnable);
-        handler.postDelayed(processRunnable, EVENT_DEBOUNCE_MS);
+        if (!targetLaunchRequested || eventProcessScheduled) return;
+        eventProcessScheduled = true;
+        handler.postDelayed(eventProcessRunnable, EVENT_DEBOUNCE_MS);
     }
 
     @Override
@@ -148,6 +183,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void startAutomation(boolean manual) {
         if (running) {
+            if (awaitingHumanVerification) {
+                Notifier.vibrateVerification(this);
+                return;
+            }
             long runningFor = SystemClock.uptimeMillis() - runStartedAt;
             if (!manual || runningFor < 20000L) {
                 Notifier.show(this, "자동 출석", "이미 실행 중입니다.");
@@ -161,6 +200,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             removePrivacyCurtain();
         }
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        try {
+            runAccounts = LoginCredentials.readAccounts(this);
+        } catch (Exception error) {
+            Notifier.show(this, "자동 출석 실행 불가", "저장된 계정 정보를 읽지 못했습니다. 앱에서 계정 목록을 확인해주세요.");
+            return;
+        }
+        accountIndex = 0;
+        accountSuccessCount = 0;
+        accountResults.clear();
         boolean swipeKeyguardLocked = keyguard.isKeyguardLocked();
 
         PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
@@ -184,21 +232,46 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         wakeLock = power.newWakeLock(
                 PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "ShinsegaeAttendance:Run");
-        wakeLock.acquire(3 * 60 * 1000L);
+        wakeLock.setReferenceCounted(false);
+        wakeLock.acquire(Math.max(3, runAccounts.size() * 3) * 60 * 1000L);
         running = true;
         runStartedAt = SystemClock.uptimeMillis();
-        carouselAttempts = 0;
+        accountStartedAt = runStartedAt;
+        attendanceMenuAttempts = 0;
+        eventListAttempts = 0;
+        eventListScrolls = 0;
+        eventListOpenedAt = 0L;
         detailAttempts = 0;
         detailLoadAttempts = 0;
-        foregroundLaunchAttempts = 0;
-        stage = STAGE_HOME;
+        targetLaunchRequested = false;
+        targetLaunchedAt = 0L;
+        foregroundMissingSince = 0L;
+        eventProcessScheduled = false;
+        stage = runAccounts.isEmpty() ? STAGE_HOME : STAGE_OPEN_LOGIN;
+        logoutAttempts = 0;
+        logoutBackAttempts = 0;
+        logoutStep = 0;
+        logoutScrolls = 0;
+        adOptOutTapped = false;
+        adToggleAttempts = 0;
+        adCloseAttempts = 0;
         loginWaitAttempts = 0;
         loginPromptClicked = false;
         loginFieldsFilled = false;
         loginSubmitted = false;
+        awaitingHumanVerification = false;
+        humanVerificationStartedAt = 0L;
+        verificationCurtainSuspended = false;
+        captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
         loginAttemptedThisRun = false;
         loginKeyboardDismissed = false;
         loginPasswordCenterY = -1;
+        loginAutoToggleAttempts = 0;
+        loginAutoControlWaits = 0;
+        loginOpenAttempts = 0;
+        loginBackAttempts = 0;
         stageReadyAt = 0L;
 
         if (swipeKeyguardLocked) {
@@ -206,23 +279,44 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         } else {
             launchTargetApp();
         }
-        handler.postDelayed(() -> {
-            if (running) fail(timeoutReason());
-        }, 90000);
+        handler.postDelayed(timeoutRunnable, 1000L);
     }
+
+    private final Runnable timeoutRunnable = new Runnable() {
+        @Override public void run() {
+            if (!running) return;
+            if (awaitingHumanVerification) {
+                if (SystemClock.uptimeMillis() - humanVerificationStartedAt >= HUMAN_VERIFICATION_TIMEOUT_MS) {
+                    fail("직접 인증을 기다린 지 10분이 지나 대기를 종료했습니다. 신세계 앱에서 인증 상태를 확인해주세요.");
+                }
+                if (running) handler.postDelayed(this, 1000L);
+                return;
+            }
+            if (SystemClock.uptimeMillis() - accountStartedAt >= ACCOUNT_TIMEOUT_MS) {
+                fail(timeoutReason());
+            }
+            if (running) handler.postDelayed(this, 1000L);
+        }
+    };
 
     private String timeoutReason() {
         switch (stage) {
+            case STAGE_LOGOUT:
+                return "계정 전환을 위해 신세계 앱의 설정 또는 로그아웃 버튼을 찾지 못했습니다.";
             case STAGE_LOGIN:
-                return "90초 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
-            case STAGE_WALLET:
-                return "90초 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
+                return "2분 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
+            case STAGE_OPEN_LOGIN:
+                return "2분 동안 메인 화면의 사람 아이콘에서 로그인 화면을 열지 못했습니다.";
+            case STAGE_ATTENDANCE_MENU:
+                return "전체메뉴에서 참여한 이벤트 메뉴를 열지 못했습니다.";
+            case STAGE_PARTICIPATED_EVENTS:
+                return "참여한 이벤트 목록에서 리워드 캘린더를 열지 못했습니다.";
             case STAGE_DETAIL:
-                return "90초 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
+                return "2분 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
             case STAGE_RESULT:
-                return "참여 버튼을 누른 뒤 90초 안에 완료 표시를 확인하지 못했습니다. 신세계 앱에서 실제 출석 여부를 확인해주세요.";
+                return "참여 버튼을 누른 뒤 2분 안에 완료 표시를 확인하지 못했습니다. 신세계 앱에서 실제 출석 여부를 확인해주세요.";
             default:
-                return "90초 동안 신세계 앱 첫 화면에서 출석 절차를 시작하지 못했습니다. 앱 화면이나 로그인 상태를 확인해주세요.";
+                return "2분 동안 신세계 앱 첫 화면에서 출석 절차를 시작하지 못했습니다. 앱 화면이나 로그인 상태를 확인해주세요.";
         }
     }
 
@@ -242,7 +336,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void handleSystemKeyguardDismissResult(boolean dismissed) {
         if (!running) return;
         if (dismissed) {
-            handler.postDelayed(this::launchTargetApp, 500L);
+            // Let UnlockActivity finish before bringing the target task forward.
+            handler.post(this::launchTargetApp);
             return;
         }
 
@@ -271,55 +366,105 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void launchTargetApp() {
-        if (!running) return;
+        if (!running || targetLaunchRequested) return;
         Intent launch = getPackageManager().getLaunchIntentForPackage(TARGET_PACKAGE);
         if (launch == null) {
             fail("신세계백화점 앱을 찾을 수 없습니다.");
             return;
         }
-        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        // Bring the existing task forward once, without clearing/restarting
+        // its activity stack each time the accessibility root is loading.
+        launch.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NO_ANIMATION);
         try {
+            targetLaunchRequested = true;
+            targetLaunchedAt = SystemClock.uptimeMillis();
             startActivity(launch);
-            handler.postDelayed(processRunnable, STARTUP_WAIT_MS);
+            handler.removeCallbacks(processRunnable);
+            scheduleProcess(STARTUP_WAIT_MS);
         } catch (RuntimeException error) {
             fail("신세계백화점 앱을 실행하지 못했습니다.");
         }
     }
 
     private final Runnable processRunnable = this::processScreen;
+    private final Runnable eventProcessRunnable = this::processScreen;
+
+    private void scheduleProcess(long delayMillis) {
+        stageReadyAt = SystemClock.uptimeMillis() + delayMillis;
+        handler.removeCallbacks(processRunnable);
+        handler.postDelayed(processRunnable, delayMillis);
+    }
 
     private void processScreen() {
-        if (!running) return;
+        handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(eventProcessRunnable);
+        eventProcessScheduled = false;
+        if (!running || !targetLaunchRequested) return;
         if (stage == STAGE_LOGIN && loginFieldsFilled
                 && !loginKeyboardDismissed && isInputMethodVisible()) {
             performGlobalAction(GLOBAL_ACTION_BACK);
             loginKeyboardDismissed = true;
-            handler.postDelayed(processRunnable, 500L);
+            scheduleProcess(250L);
             return;
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null || !TARGET_PACKAGE.contentEquals(root.getPackageName())) {
-            foregroundLaunchAttempts++;
-            if (foregroundLaunchAttempts == 4 || foregroundLaunchAttempts == 9) {
-                launchTargetApp();
+            if (awaitingHumanVerification) {
+                // Let the user switch to a notification or authentication UI
+                // without relaunching the app or triggering foreground failure.
+                scheduleProcess(1000L);
                 return;
             }
-            if (foregroundLaunchAttempts > 14) {
+            long now = SystemClock.uptimeMillis();
+            if (foregroundMissingSince == 0L) foregroundMissingSince = now;
+            if (now - foregroundMissingSince >= FOREGROUND_TIMEOUT_MS) {
                 fail("신세계 앱을 화면에 표시하지 못했습니다. 잠금화면이나 배터리 설정을 확인해주세요.");
                 return;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return;
         }
-        foregroundLaunchAttempts = 0;
+        foregroundMissingSince = 0L;
+
+        // Observe the CAPTCHA entry immediately, even during the wait after
+        // clicking Login. Do not wait for an image challenge to appear.
+        if (stage == STAGE_LOGIN && loginSubmitted) {
+            AccessibilityNodeInfo robot = findRobotControl(root);
+            if (robot != null && !captchaResubmitted) {
+                beginHumanVerification();
+                if (!verificationVibrated) {
+                    Notifier.vibrateVerification(this);
+                    verificationVibrated = true;
+                }
+                if (isHumanVerificationComplete(root, robot, findCheckboxForLabel(root, robot))) {
+                    humanVerificationComplete = true;
+                }
+            }
+        }
 
         long waitForStage = stageReadyAt - SystemClock.uptimeMillis();
         if (waitForStage > 0) {
-            handler.postDelayed(processRunnable, waitForStage);
+            scheduleProcess(waitForStage);
             return;
         }
 
+        if (awaitingHumanVerification) {
+            handleLogin(root);
+            return;
+        }
+        // Handle the launch advertisement before login/account navigation so
+        // its overlay cannot redirect taps intended for the home screen.
+        if (handleAdvertisement(root)) return;
+        if (stage == STAGE_LOGOUT) {
+            handleLogout(root);
+            return;
+        }
         if (handleLogin(root)) return;
+        if (stage == STAGE_OPEN_LOGIN) {
+            handleOpenLogin(root);
+            return;
+        }
         if (contains(root, "오늘 참여 완료") || contains(root, "R 당첨")) {
             succeed("오늘 출석이 완료되었습니다.");
             return;
@@ -332,24 +477,35 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo close = findVisibleExact(root, "닫기");
         if (close != null) {
             clickNodeOrCenter(close);
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return;
         }
 
         // The same calendar title is shown both on the wallet card and as the
         // detail-page header. Once the card is opened, never click that title
         // again; immediately scroll the detail page toward its apply button.
+        if (stage == STAGE_RESULT) {
+            // Faster result checks must not submit the attendance twice while
+            // the server response is still loading.
+            scheduleProcess(SHORT_WAIT_MS);
+            return;
+        }
+        if (stage == STAGE_HOME || stage == STAGE_ATTENDANCE_MENU
+                || stage == STAGE_PARTICIPATED_EVENTS) {
+            handleAttendanceEntry(root);
+            return;
+        }
         if (stage == STAGE_DETAIL
-                && !contains(root, "이벤트 기간")
-                && (contains(root, "내 리워드") || contains(root, "신백리워드"))) {
+                && findVisibleAnyContains(root, "리워드 받으러 가기", "응모하러가기", "응모하러 가기") == null
+                && !contains(root, "이벤트 기간")) {
             if (detailLoadAttempts++ < 10) {
-                handler.postDelayed(processRunnable, 400L);
+                scheduleProcess(400L);
             } else {
                 fail("리워드 캘린더 상세 페이지가 열리지 않았습니다.");
             }
             return;
         }
-        if (stage == STAGE_DETAIL || contains(root, "이벤트 기간")) {
+        if (stage == STAGE_DETAIL) {
             stage = STAGE_DETAIL;
             AccessibilityNodeInfo cta = findVisibleAnyContains(
                     root,
@@ -362,54 +518,464 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (cta != null) {
                 stage = STAGE_RESULT;
                 clickNodeOrCenter(cta);
-                handler.postDelayed(processRunnable, RESULT_WAIT_MS);
+                scheduleProcess(RESULT_WAIT_MS);
             } else if (detailAttempts == 0) {
                 // The CTA sits just below the first viewport. Move the page
                 // only once and only a short distance so we never pass it.
                 detailAttempts++;
                 swipe(0.50f, 0.66f, 0.50f, 0.51f, 280);
-                handler.postDelayed(processRunnable, 700L);
+                scheduleProcess(400L);
             } else if (detailAttempts++ < 8) {
                 // Do not scroll again. Give the WebView a moment to expose the
                 // button after the single short movement.
-                handler.postDelayed(processRunnable, 400L);
+                scheduleProcess(400L);
             } else {
                 fail("짧은 스크롤 후 ‘리워드 받으러 가기’ 버튼을 찾지 못했습니다.");
             }
             return;
         }
 
-        if (stage == STAGE_WALLET || contains(root, "내 리워드") || contains(root, "신백리워드")) {
-            stage = STAGE_WALLET;
-            AccessibilityNodeInfo calendar = findVisibleContains(root, "신세계 리워드 캘린더");
-            if (calendar != null) {
-                stage = STAGE_DETAIL;
-                stageReadyAt = SystemClock.uptimeMillis() + 900L;
-                detailAttempts = 0;
-                detailLoadAttempts = 0;
-                clickNodeOrCenter(calendar);
-                handler.postDelayed(processRunnable, 900L);
+        scheduleProcess(SHORT_WAIT_MS);
+    }
+
+    private void handleAttendanceEntry(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo participated = findVisibleAnyContains(root, "참여한 이벤트", "참여한이벤트");
+        boolean menuVisible = findVisibleContains(root, "검색어를 입력하세요") != null
+                || findVisibleExact(root, "나의 선택 점포") != null;
+        if (stage != STAGE_PARTICIPATED_EVENTS) {
+            if (participated != null) {
+                clickNodeOrCenter(participated);
+                stage = STAGE_PARTICIPATED_EVENTS;
+                eventListOpenedAt = SystemClock.uptimeMillis();
+                eventListAttempts = 0;
+                eventListScrolls = 0;
+                scheduleProcess(600L);
                 return;
             }
-            if (carouselAttempts++ < 5) {
-                swipe(0.78f, 0.68f, 0.20f, 0.68f, 450);
-                handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            if (++attendanceMenuAttempts > 20) {
+                fail("전체메뉴에서 ‘참여한 이벤트’ 버튼을 찾지 못했습니다.");
+                return;
+            }
+            // Retry on the logged-in page itself, never toggle a menu
+            // that is already open or swipe a home promotional banner.
+            boolean homeVisible = findVisibleContains(root, "MY SHINSEGAE") != null
+                    || (findVisibleExact(root, "온라인쇼핑") != null
+                        && findVisibleExact(root, "백화점") != null);
+            boolean myPageVisible = findVisibleContains(root, "나의 신세계") != null
+                    && findVisibleContains(root, "안녕하세요") != null;
+            if (!menuVisible && (stage == STAGE_HOME
+                    || ((homeVisible || myPageVisible) && attendanceMenuAttempts % 4 == 0))) {
+                openCalendarMenu(root);
+                stage = STAGE_ATTENDANCE_MENU;
+                scheduleProcess(600L);
             } else {
-                fail("리워드 캘린더 카드를 찾지 못했습니다. 앱 화면이 변경되었을 수 있습니다.");
+                scheduleProcess(SHORT_WAIT_MS);
+            }
+            return;
+        }
+        // Wait for the event list rather than re-clicking the menu's old node.
+        if (menuVisible) {
+            if (++eventListAttempts > 20) fail("‘참여한 이벤트’를 누른 뒤 목록이 열리지 않았습니다.");
+            else scheduleProcess(SHORT_WAIT_MS);
+            return;
+        }
+        AccessibilityNodeInfo calendar = findVisibleContains(root, "리워드 캘린더");
+        if (calendar != null) {
+            clickNodeOrCenter(calendar);
+            stage = STAGE_DETAIL;
+            detailAttempts = 0;
+            detailLoadAttempts = 0;
+            scheduleProcess(600L);
+            return;
+        }
+        if (++eventListAttempts > 30) {
+            fail("참여한 이벤트 목록에서 ‘리워드 캘린더’ 항목을 찾지 못했습니다.");
+            return;
+        }
+        boolean listVisible = findVisibleAnyContains(root, "참여한 이벤트", "참여한이벤트") != null;
+        if (listVisible && SystemClock.uptimeMillis() - eventListOpenedAt > 1600L
+                && eventListScrolls < 6) {
+            eventListScrolls++;
+            swipe(0.50f, 0.80f, 0.50f, 0.38f, 240L);
+            scheduleProcess(500L);
+        } else {
+            scheduleProcess(SHORT_WAIT_MS);
+        }
+    }
+
+    private boolean handleAdvertisement(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo label = findVisibleAnyContains(root,
+                "오늘은 그만보기", "오늘은 그만 보기", "오늘 그만보기",
+                "오늘 하루 보지 않기", "오늘 하루 보지않기");
+        if (label == null) {
+            adOptOutTapped = false;
+            adToggleAttempts = 0;
+            adCloseAttempts = 0;
+            return false;
+        }
+        AccessibilityNodeInfo checkbox = findCheckboxForLabel(root, label);
+        if (checkbox != null && !checkbox.isChecked()) {
+            if (++adToggleAttempts > 3) {
+                fail("광고의 ‘오늘은 그만보기’ 체크박스를 활성화하지 못했습니다.");
+                return true;
+            }
+            clickNodeOrCenter(checkbox);
+            adOptOutTapped = true;
+            scheduleProcess(200L);
+            return true;
+        }
+        if (checkbox == null && !adOptOutTapped && !label.isSelected()) {
+            // Some WebViews expose only the checkbox label. Tap it once;
+            // never toggle it repeatedly when checked state is unavailable.
+            clickNodeOrCenter(label);
+            adOptOutTapped = true;
+            scheduleProcess(200L);
+            return true;
+        }
+        AccessibilityNodeInfo close = findVisibleExact(root, "닫기");
+        if (close == null) close = findVisibleContains(root, "닫기");
+        if (++adCloseAttempts > 5) {
+            fail("광고의 ‘닫기’ 버튼을 찾거나 광고창을 닫지 못했습니다.");
+            return true;
+        }
+        if (close != null) clickNodeOrCenter(close);
+        scheduleProcess(300L);
+        return true;
+    }
+
+    private void handleLogout(AccessibilityNodeInfo root) {
+        // The user-provided screens show: calendar bottom-right menu -> all menu (scroll
+        // to bottom) -> 설정 -> 환경설정 -> 로그아웃, then immediately begin
+        // the next login flow without a separate logout verification pass.
+        boolean loginForm = findLoginFields(root) != null;
+        boolean loginPrompt = findVisibleContains(root, "로그인이 필요한 서비스") != null;
+        boolean loginVisible = findVisibleExact(root, "로그인") != null;
+        if (loginForm || loginPrompt || (loginVisible && findVisibleExact(root, "로그아웃") == null
+                && findVisibleExact(root, "환경설정") != null)) {
+            beginLoginForCurrentAccount();
+            return;
+        }
+
+        boolean settingsPage = findVisibleExact(root, "환경설정") != null
+                && findVisibleExact(root, "로그아웃") != null;
+        boolean menuPage = findVisibleContains(root, "검색어를 입력하세요") != null
+                || findVisibleExact(root, "나의 선택 점포") != null;
+        boolean mainPage = contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (logoutStep == 6 && !settingsPage && !menuPage) {
+            openCalendarMenu(root);
+            logoutStep = 2;
+            scheduleProcess(450L);
+            return;
+        }
+        if (settingsPage) {
+            logoutStep = 4;
+        } else if (logoutStep == 6 && menuPage) {
+            logoutStep = 2;
+        } else if (logoutStep == 0) {
+            if (menuPage) logoutStep = 2;
+            else if (mainPage) logoutStep = 1;
+        }
+
+        if (logoutStep == 4) {
+            // The Shinsegae app's own auto-login would silently sign back in
+            // to the old account. Turn it off only when its switch state can
+            // be confirmed by the accessibility tree.
+            AccessibilityNodeInfo autoLoginLabel = findVisibleExact(root, "자동 로그인 사용");
+            AccessibilityNodeInfo autoLoginSwitch = autoLoginLabel == null
+                    ? null : findCheckableBeside(root, autoLoginLabel);
+            if (autoLoginSwitch == null) {
+                fail("신세계 앱의 '자동 로그인 사용' 상태를 확인하지 못했습니다. 직접 끈 뒤 다시 실행해주세요.");
+                return;
+            }
+            if (autoLoginSwitch.isChecked()) {
+                clickNodeOrCenter(autoLoginSwitch);
+                scheduleProcess(500L);
+                return;
+            }
+            AccessibilityNodeInfo logout = findVisibleExact(root, "로그아웃");
+            if (logout == null) {
+                if (++logoutAttempts > 10) fail("환경설정에서 로그아웃 버튼을 찾지 못했습니다.");
+                else scheduleProcess(500L);
+                return;
+            }
+            clickNodeOrCenter(logout);
+            beginLoginForCurrentAccount();
+            return;
+        }
+
+        if (logoutStep == 2) {
+            if (!menuPage) {
+                if (++logoutAttempts > 8) fail("전체 메뉴 화면이 열리지 않았습니다.");
+                else scheduleProcess(500L);
+                return;
+            }
+            logoutAttempts = 0;
+            AccessibilityNodeInfo settings = findMenuSettings(root);
+            if (settings != null) {
+                clickNodeOrCenter(settings);
+                logoutStep = 3;
+                logoutAttempts = 0;
+                scheduleProcess(450L);
+                return;
+            }
+            if (logoutScrolls++ >= 12) {
+                fail("전체 메뉴를 내려도 맨 아래의 설정 버튼을 찾지 못했습니다.");
+                return;
+            }
+            scrollMenuToBottom(root);
+            scheduleProcess(350L);
+            return;
+        }
+
+        if (logoutStep == 1) {
+            AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
+            if (menu != null) clickNodeOrCenter(menu);
+            else tap(0.08f, 0.083f); // Unlabeled hamburger in the provided main-screen image.
+            logoutStep = 2;
+            logoutScrolls = 0;
+            scheduleProcess(850L);
+            return;
+        }
+
+        if (logoutStep == 3) {
+            if (++logoutAttempts > 10) {
+                fail("설정 버튼을 누른 뒤 환경설정 화면이 열리지 않았습니다.");
+            } else {
+                scheduleProcess(500L);
             }
             return;
         }
 
-        if (contains(root, "MY SHINSEGAE") || contains(root, "온라인쇼핑")) {
-            // Current app build exposes the R tab as an unlabeled second item.
-            stage = STAGE_WALLET;
-            stageReadyAt = SystemClock.uptimeMillis() + 900L;
-            tap(0.271f, 0.892f);
-            handler.postDelayed(processRunnable, 900L);
+        // A cold launch may still show a splash screen. Do not back out of
+        // the app while its initial accessibility content is loading.
+        if (SystemClock.uptimeMillis() - targetLaunchedAt < 4000L) {
+            scheduleProcess(400L);
+        } else if (logoutBackAttempts++ < 3) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            scheduleProcess(700L);
+        } else {
+            fail("신세계 앱의 메인 화면으로 돌아가지 못해 계정 전환을 중단했습니다.");
+        }
+    }
+
+    private AccessibilityNodeInfo findMenuSettings(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            CharSequence value = node.getText();
+            if (TextUtils.isEmpty(value)) value = node.getContentDescription();
+            if (node.isVisibleToUser() && value != null
+                    && value.toString().trim().startsWith("설정")) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                if (!bounds.isEmpty() && bounds.centerX() < width * 0.40f
+                        && bounds.centerY() > height * 0.24f
+                        && bounds.centerY() < height * 0.94f) return node;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return null;
+    }
+
+    private void scrollMenuToBottom(AccessibilityNodeInfo root) {
+        // Ask the footer itself to become visible. WebViews may expose its
+        // accessibility node even while it is below the viewport.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo scroll = null;
+        AccessibilityNodeInfo footer = null;
+        int largestArea = 0;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            CharSequence label = node.getText();
+            if (TextUtils.isEmpty(label)) label = node.getContentDescription();
+            if (label != null && label.toString().trim().matches("설정[\\s⚙]*")
+                    && node.getActionList().contains(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN)) {
+                footer = node;
+            }
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            int area = bounds.width() * bounds.height();
+            if (node.isVisibleToUser() && node.isScrollable() && area > largestArea) {
+                scroll = node;
+                largestArea = area;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        if (logoutScrolls == 1 && footer != null
+                && footer.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId())) {
             return;
         }
+        if (scroll != null) {
+            AccessibilityNodeInfo.CollectionInfo collection = scroll.getCollectionInfo();
+            if (logoutScrolls == 1 && collection != null && collection.getRowCount() > 1
+                    && scroll.getActionList().contains(
+                        AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION)) {
+                Bundle position = new Bundle();
+                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT,
+                        collection.getRowCount() - 1);
+                position.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_COLUMN_INT, 0);
+                if (scroll.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.getId(), position)) return;
+            }
+            // Retain a native fallback if fast flings are ignored by this view.
+            if (logoutScrolls % 4 == 0
+                    && scroll.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return;
+        }
+        // Start above the persistent bottom navigation bar, not on its icons.
+        // Keep both ends inside the scrollable content below the fixed header.
+        swipe(0.50f, 0.84f, 0.50f, 0.24f, 90L);
+    }
 
-        handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+    private void openCalendarMenu(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo menu = findVisibleAnyContains(root, "전체메뉴", "전체 메뉴");
+        if (menu == null) menu = findVisibleExact(root, "메뉴");
+        if (menu != null) {
+            Rect bounds = new Rect();
+            menu.getBoundsInScreen(bounds);
+            if (bounds.centerX() > getResources().getDisplayMetrics().widthPixels * 0.75f
+                    && bounds.centerY() > getResources().getDisplayMetrics().heightPixels * 0.80f) {
+                clickNodeOrCenter(menu);
+                return;
+            }
+        }
+        // Persistent bottom-right hamburger shown in the provided app screens.
+        tap(0.93f, 0.918f);
+    }
+
+    private AccessibilityNodeInfo findCheckableBeside(AccessibilityNodeInfo root, AccessibilityNodeInfo label) {
+        Rect labelBounds = new Rect();
+        label.getBoundsInScreen(labelBounds);
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            if (node.isVisibleToUser() && node.isCheckable()) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                int distance = Math.abs(bounds.centerY() - labelBounds.centerY());
+                if (bounds.centerX() > labelBounds.centerX()
+                        && distance < getResources().getDisplayMetrics().heightPixels * 0.055f
+                        && distance < bestDistance) {
+                    best = node;
+                    bestDistance = distance;
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return best;
+    }
+
+    private void beginLoginForCurrentAccount() {
+        endHumanVerification();
+        captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
+        stage = STAGE_OPEN_LOGIN;
+        attendanceMenuAttempts = 0;
+        eventListAttempts = 0;
+        eventListScrolls = 0;
+        eventListOpenedAt = 0L;
+        detailAttempts = 0;
+        detailLoadAttempts = 0;
+        foregroundMissingSince = 0L;
+        loginWaitAttempts = 0;
+        loginPromptClicked = false;
+        loginFieldsFilled = false;
+        loginSubmitted = false;
+        loginAttemptedThisRun = false;
+        loginKeyboardDismissed = false;
+        loginPasswordCenterY = -1;
+        loginAutoToggleAttempts = 0;
+        loginAutoControlWaits = 0;
+        loginOpenAttempts = 0;
+        loginBackAttempts = 0;
+        stageReadyAt = SystemClock.uptimeMillis() + 300L;
+        accountStartedAt = SystemClock.uptimeMillis();
+        handler.removeCallbacks(processRunnable);
+        scheduleProcess(300L);
+    }
+
+    private void handleOpenLogin(AccessibilityNodeInfo root) {
+        // Start directly at the profile login entry. Only an actually logged-in
+        // My page (for example from yesterday's last account) needs logout.
+        if (accountIndex == 0 && !loginAttemptedThisRun
+                && contains(root, "나의 신세계") && contains(root, "안녕하세요")) {
+            beginLogoutForNextAccount();
+            return;
+        }
+        // Some app builds show a logout confirmation dialog. Complete the
+        // required action, then continue directly to the profile/login entry.
+        if (findVisibleContains(root, "로그아웃") != null) {
+            AccessibilityNodeInfo confirm = findVisibleExact(root, "예");
+            if (confirm == null) confirm = findVisibleExact(root, "확인");
+            if (confirm != null) {
+                clickNodeOrCenter(confirm);
+                stageReadyAt = SystemClock.uptimeMillis() + 650L;
+                scheduleProcess(650L);
+                return;
+            }
+        }
+        boolean mainPage = contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (mainPage) {
+            if (++loginOpenAttempts > 9) {
+                fail("메인 화면의 사람 아이콘을 눌러도 로그인 요청이 나타나지 않았습니다. 다른 계정의 출석은 진행하지 않았습니다.");
+                return;
+            }
+            tap(0.875f, 0.892f);
+            scheduleProcess(450L);
+            return;
+        }
+        if (findVisibleExact(root, "환경설정") != null) {
+            AccessibilityNodeInfo home = findVisibleExact(root, "홈");
+            if (home != null) clickNodeOrCenter(home);
+            else tap(0.63f, 0.918f);
+            scheduleProcess(450L);
+            return;
+        }
+        if (SystemClock.uptimeMillis() - targetLaunchedAt < 4000L) {
+            scheduleProcess(400L);
+        } else if (loginBackAttempts++ < 3) {
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            scheduleProcess(700L);
+        } else {
+            fail("신세계 앱 메인 화면으로 돌아가 사람 아이콘에서 로그인을 시작하지 못했습니다.");
+        }
+    }
+
+    private void beginLogoutForNextAccount() {
+        beginLogoutForNextAccount(false);
+    }
+
+    private void beginLogoutForNextAccount(boolean fromCalendar) {
+        endHumanVerification();
+        captchaResubmitted = false;
+        verificationVibrated = false;
+        humanVerificationComplete = false;
+        stage = STAGE_LOGOUT;
+        logoutStep = fromCalendar ? 6 : 0;
+        logoutAttempts = 0;
+        logoutBackAttempts = 0;
+        logoutScrolls = 0;
+        stageReadyAt = SystemClock.uptimeMillis() + 500L;
+        accountStartedAt = SystemClock.uptimeMillis();
+        scheduleProcess(fromCalendar ? 0L : 500L);
     }
 
     private boolean handleLogin(AccessibilityNodeInfo root) {
@@ -424,8 +990,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("로그인 시도 후에도 로그인 화면이 다시 나타났습니다. 계정 정보나 추가 인증을 확인해주세요.");
                 return true;
             }
-            if (!LoginCredentials.isSaved(this)) {
-                fail("신세계 앱 로그인이 필요하지만 저장된 아이디와 비밀번호가 없습니다. 앱에서 로그인 정보를 저장해주세요.");
+            if (runAccounts.isEmpty()) {
+                fail("신세계 앱 로그인이 필요하지만 저장된 계정이 없습니다. 앱에서 계정을 추가해주세요.");
                 return true;
             }
             stage = STAGE_LOGIN;
@@ -434,6 +1000,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginFieldsFilled = false;
             loginSubmitted = false;
             loginKeyboardDismissed = false;
+            loginAutoToggleAttempts = 0;
+            loginAutoControlWaits = 0;
         }
 
         if (loginSubmitted) {
@@ -441,21 +1009,25 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("신세계 앱에서 로그인 정보를 확인하라는 오류가 표시되었습니다. 저장한 아이디와 비밀번호를 확인해주세요.");
                 return true;
             }
-            if (findVisibleAnyContains(root, "인증번호", "추가 인증", "보안문자") != null) {
-                fail("신세계 앱에서 추가 인증을 요청했습니다. 직접 인증한 뒤 다시 실행해주세요.");
+            if (handleHumanVerification(root)) return true;
+            boolean homeVisible = contains(root, "MY SHINSEGAE")
+                    || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+            boolean myPageVisible = contains(root, "나의 신세계")
+                    && contains(root, "안녕하세요");
+            if (fields == null && !prompt && (homeVisible || myPageVisible)) {
+                // Keep the post-login screen in place. Its bottom-right menu
+                // opens all-menu directly; going home first loses this control.
+                stage = STAGE_ATTENDANCE_MENU;
+                attendanceMenuAttempts = 1;
+                openCalendarMenu(root);
+                scheduleProcess(450L);
                 return true;
             }
-            if (fields == null && !prompt) {
-                stage = STAGE_HOME;
-                stageReadyAt = SystemClock.uptimeMillis() + 700L;
-                handler.postDelayed(processRunnable, 700L);
-                return true;
-            }
-            if (++loginWaitAttempts > 25) {
+            if (++loginWaitAttempts > 41) {
                 fail("로그인 버튼을 누른 뒤에도 로그인 화면이 유지됩니다. 계정 정보 또는 추가 인증을 확인해주세요.");
                 return true;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return true;
         }
 
@@ -469,22 +1041,24 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 if (confirmation != null) {
                     clickNodeOrCenter(confirmation);
                     loginPromptClicked = true;
-                    stageReadyAt = SystemClock.uptimeMillis() + 650L;
-                    handler.postDelayed(processRunnable, 650L);
+                    stageReadyAt = SystemClock.uptimeMillis() + 350L;
+                    scheduleProcess(350L);
                     return true;
                 }
             }
-            if (++loginWaitAttempts > 25) {
+            if (++loginWaitAttempts > 41) {
                 fail("로그인이 필요하다는 팝업에서 ‘예’를 누른 뒤에도 로그인 화면이 열리지 않았습니다.");
                 return true;
             }
-            handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+            scheduleProcess(SHORT_WAIT_MS);
             return true;
         }
 
         if (loginFieldsFilled) {
             // Setting the password often rebuilds the WebView. Find the
-            // enabled submit button on the refreshed accessibility tree.
+            // enabled submit button and confirm auto-login is still off on
+            // the refreshed accessibility tree before submitting.
+            if (ensureLoginAutoOff(root, true)) return true;
             AccessibilityNodeInfo loginButton = findLoginButton(root, loginPasswordCenterY);
             if (loginButton != null) {
                 if (!loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -496,26 +1070,21 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 loginSubmitted = true;
                 loginAttemptedThisRun = true;
                 loginWaitAttempts = 0;
-                stageReadyAt = SystemClock.uptimeMillis() + 1300L;
-                handler.postDelayed(processRunnable, 1300L);
+                stageReadyAt = SystemClock.uptimeMillis() + 650L;
+                scheduleProcess(650L);
                 return true;
             }
             if (++loginWaitAttempts > 12) {
                 fail("아이디·비밀번호 입력 후 로그인 버튼을 찾지 못했습니다. 로그인 화면이 변경되었을 수 있습니다.");
                 return true;
             }
-            handler.postDelayed(processRunnable, 400L);
+            scheduleProcess(400L);
             return true;
         }
 
         if (form) {
-            LoginCredentials.Account account;
-            try {
-                account = LoginCredentials.read(this);
-            } catch (Exception error) {
-                fail("저장된 로그인 정보를 읽지 못했습니다. 앱에서 아이디와 비밀번호를 다시 저장해주세요.");
-                return true;
-            }
+            if (ensureLoginAutoOff(root, false)) return true;
+            LoginCredentials.Account account = runAccounts.get(accountIndex);
             if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
                 fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
                 return true;
@@ -531,17 +1100,239 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             loginFieldsFilled = true;
             loginKeyboardDismissed = false;
             loginWaitAttempts = 0;
-            stageReadyAt = SystemClock.uptimeMillis() + 700L;
-            handler.postDelayed(processRunnable, 700L);
+            stageReadyAt = SystemClock.uptimeMillis() + 350L;
+            scheduleProcess(350L);
             return true;
         }
 
-        if (++loginWaitAttempts > 25) {
+        if (++loginWaitAttempts > 41) {
             fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
             return true;
         }
-        handler.postDelayed(processRunnable, SHORT_WAIT_MS);
+        scheduleProcess(SHORT_WAIT_MS);
         return true;
+    }
+
+    private boolean handleHumanVerification(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo robotLabel = findRobotControl(root);
+        AccessibilityNodeInfo robotCheckbox = robotLabel == null
+                ? null : findCheckboxForLabel(root, robotLabel);
+        boolean additionalAuth = findVisibleAnyContains(root,
+                "인증번호", "추가 인증", "보안문자", "reCAPTCHA") != null;
+        boolean checked = isHumanVerificationComplete(root, robotLabel, robotCheckbox);
+        boolean explicitlyUnchecked = !checked && robotCheckbox != null
+                && robotCheckbox.isCheckable() && !robotCheckbox.isChecked();
+        if (explicitlyUnchecked) {
+            humanVerificationComplete = false;
+            if (captchaResubmitted) verificationVibrated = false;
+            captchaResubmitted = false;
+        }
+        if (checked) humanVerificationComplete = true;
+        if (!awaitingHumanVerification && robotLabel == null && !additionalAuth) {
+            captchaResubmitted = false;
+            humanVerificationComplete = false;
+            return false;
+        }
+        if (captchaResubmitted && !awaitingHumanVerification) return false;
+
+        beginHumanVerification();
+        if (robotLabel != null && !verificationVibrated && !checked) {
+            Notifier.vibrateVerification(this);
+            verificationVibrated = true;
+        }
+
+        // A user may finish the entire login themselves. Only a recognized
+        // logged-in screen is sufficient to leave the manual wait here.
+        boolean loggedInPage = (contains(root, "나의 신세계") && contains(root, "안녕하세요"))
+                || contains(root, "MY SHINSEGAE")
+                || (contains(root, "온라인쇼핑") && contains(root, "백화점"));
+        if (robotLabel == null && !additionalAuth && findLoginFields(root) == null && loggedInPage) {
+            endHumanVerification();
+            captchaResubmitted = false;
+            loginWaitAttempts = 0;
+            return false;
+        }
+        if (humanVerificationComplete && !captchaResubmitted) {
+            AccessibilityNodeInfo login = findVerificationLoginButton(root);
+            if (login != null && login.isEnabled()) {
+                // The human completed CAPTCHA; interact only with the app's
+                // login button, never with the CAPTCHA or its challenge.
+                // Custom WebView buttons can acknowledge ACTION_CLICK without
+                // submitting. Tap the confirmed app submit control directly.
+                if (!tapLoginButton(login)) {
+                    fail("직접 인증 후 로그인 버튼을 누르지 못했습니다.");
+                    return true;
+                }
+                captchaResubmitted = true;
+                endHumanVerification();
+                loginWaitAttempts = 0;
+                scheduleProcess(650L);
+                return true;
+            }
+        }
+        // An unreadable/missing checkbox is not proof of verification. Keep
+        // waiting so the user can finish authentication/login themselves.
+        scheduleProcess(1000L);
+        return true;
+    }
+
+    private void beginHumanVerification() {
+        if (awaitingHumanVerification) return;
+        awaitingHumanVerification = true;
+        humanVerificationStartedAt = SystemClock.uptimeMillis();
+        verificationCurtainSuspended = curtainView != null;
+        removePrivacyCurtain();
+        if (wakeLock != null) wakeLock.acquire(HUMAN_VERIFICATION_TIMEOUT_MS
+                + Math.max(3, runAccounts.size() * 3) * 60000L);
+    }
+
+    private AccessibilityNodeInfo findRobotControl(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            String id = node.getViewIdResourceName();
+            Rect bounds = new Rect();
+            node.getBoundsInScreen(bounds);
+            if (node.isVisibleToUser() && !bounds.isEmpty()
+                    && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.20f
+                    && (isRobotLabel(node.getText())
+                    || isRobotLabel(node.getContentDescription())
+                    || (id != null && id.endsWith("recaptcha-anchor")))) return node;
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return null;
+    }
+
+    private boolean isRobotLabel(CharSequence value) {
+        if (value == null) return false;
+        String label = value.toString().replaceAll("\\s+", "").replace("’", "'")
+                .toLowerCase(java.util.Locale.ROOT);
+        return label.contains("로봇이아닙니다") || label.contains("i'mnotarobot");
+    }
+
+    private AccessibilityNodeInfo findVerificationLoginButton(AccessibilityNodeInfo root) {
+        // Select a wide submit control below the header. CAPTCHA can change
+        // field positions or add editable controls, invalidating saved bounds.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        AccessibilityNodeInfo fallback = null;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            String text = node.getText() == null ? "" : node.getText().toString().trim();
+            String description = node.getContentDescription() == null
+                    ? "" : node.getContentDescription().toString().trim();
+            if (node.isVisibleToUser() && ("로그인".equals(text) || "로그인하기".equals(text)
+                    || "로그인".equals(description) || "로그인하기".equals(description))) {
+                AccessibilityNodeInfo candidate = node;
+                for (int i = 0; i < 4 && candidate != null; i++, candidate = candidate.getParent()) {
+                    Rect bounds = new Rect();
+                    candidate.getBoundsInScreen(bounds);
+                    if (candidate.isVisibleToUser() && candidate.isEnabled()
+                            && bounds.width() > width * 0.40f && bounds.height() > 0
+                            && bounds.height() < height * 0.15f && bounds.centerY() > height * 0.25f) {
+                        if (candidate.isClickable()) return candidate;
+                        fallback = candidate;
+                    }
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return fallback;
+    }
+
+    private boolean isHumanVerificationComplete(AccessibilityNodeInfo root,
+            AccessibilityNodeInfo label, AccessibilityNodeInfo checkbox) {
+        if (checkbox != null && checkbox.isChecked()) return true;
+        if (hasVerifiedState(checkbox) || hasVerifiedState(label)) return true;
+        if (label != null) {
+            Rect labelBounds = new Rect();
+            label.getBoundsInScreen(labelBounds);
+            for (AccessibilityNodeInfo parent = label.getParent(); parent != null; parent = parent.getParent()) {
+                Rect bounds = new Rect();
+                parent.getBoundsInScreen(bounds);
+                if (bounds.height() > getResources().getDisplayMetrics().heightPixels * 0.15f) break;
+                if (hasVerifiedState(parent)) return true;
+            }
+            // WebView controls can expose checked state in their description
+            // even when Android does not mark the node as checkable.
+            ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+            queue.add(root);
+            while (!queue.isEmpty()) {
+                AccessibilityNodeInfo node = queue.removeFirst();
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                boolean besideLabel = !bounds.isEmpty()
+                        && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.09f
+                        && Math.abs(bounds.centerY() - labelBounds.centerY())
+                            < getResources().getDisplayMetrics().heightPixels * 0.035f
+                        && bounds.centerX() <= labelBounds.right
+                        && bounds.centerX() >= labelBounds.left
+                            - getResources().getDisplayMetrics().widthPixels * 0.18f;
+                if (node.isVisibleToUser() && besideLabel && hasVerifiedState(node)) return true;
+                for (int i = 0; i < node.getChildCount(); i++) {
+                    AccessibilityNodeInfo child = node.getChild(i);
+                    if (child != null) queue.add(child);
+                }
+            }
+        }
+        // Some CAPTCHA widgets replace their checkbox with a completion text.
+        // Its disappearance or an enabled login button alone is not proof.
+        return awaitingHumanVerification && findVisibleAnyContains(root,
+                "reCAPTCHA 인증 완료", "로봇 인증 완료", "로봇이 아님이 확인",
+                "Verification complete", "You are verified", "You have been verified") != null;
+    }
+
+    private boolean hasVerifiedState(AccessibilityNodeInfo node) {
+        if (node == null || !node.isVisibleToUser()) return false;
+        if (node.isChecked()) return true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && VerificationState.isComplete(node.getStateDescription())) return true;
+        return VerificationState.isComplete(node.getText())
+                || VerificationState.isComplete(node.getContentDescription());
+    }
+
+    private void endHumanVerification() {
+        if (!awaitingHumanVerification) return;
+        accountStartedAt += SystemClock.uptimeMillis() - humanVerificationStartedAt;
+        awaitingHumanVerification = false;
+        humanVerificationStartedAt = 0L;
+        foregroundMissingSince = 0L;
+        if (verificationCurtainSuspended && running) showPrivacyCurtain();
+        verificationCurtainSuspended = false;
+    }
+
+    private boolean ensureLoginAutoOff(AccessibilityNodeInfo root, boolean afterFields) {
+        AccessibilityNodeInfo autoLogin = findLoginAutoCheckbox(root);
+        if (autoLogin == null) {
+            if (++loginAutoControlWaits > 12) {
+                fail("로그인 화면에서 '자동 로그인' 체크 상태를 확인하지 못했습니다. 직접 체크를 끈 뒤 다시 실행해주세요.");
+            } else {
+                scheduleProcess(400L);
+            }
+            return true;
+        }
+        loginAutoControlWaits = 0;
+        if (autoLogin.isChecked()) {
+            if (++loginAutoToggleAttempts > 3) {
+                fail("로그인 화면의 '자동 로그인' 체크를 해제하지 못했습니다.");
+                return true;
+            }
+            clickNodeOrCenter(autoLogin);
+            if (afterFields) loginFieldsFilled = false;
+            scheduleProcess(500L);
+            return true;
+        }
+        loginAutoToggleAttempts = 0;
+        return false;
     }
 
     private static final class LoginFields {
@@ -582,6 +1373,59 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         if (userBounds.isEmpty() || passwordBounds.isEmpty()
                 || userBounds.centerY() >= passwordBounds.centerY()) return null;
         return new LoginFields(usernames.get(0), password);
+    }
+
+    private AccessibilityNodeInfo findLoginAutoCheckbox(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo label = findVisibleExact(root, "자동 로그인");
+        if (label == null) label = findVisibleExact(root, "자동로그인");
+        if (label == null) return null;
+        return findCheckboxForLabel(root, label);
+    }
+
+    private AccessibilityNodeInfo findCheckboxForLabel(AccessibilityNodeInfo root, AccessibilityNodeInfo label) {
+        if (label.isCheckable()) return label;
+
+        Rect labelBounds = new Rect();
+        label.getBoundsInScreen(labelBounds);
+        if (labelBounds.isEmpty()) return null;
+        for (AccessibilityNodeInfo parent = label.getParent(); parent != null; parent = parent.getParent()) {
+            Rect bounds = new Rect();
+            parent.getBoundsInScreen(bounds);
+            if (parent.isCheckable() && bounds.height() < getResources().getDisplayMetrics().heightPixels * 0.09f) {
+                return parent;
+            }
+            if (bounds.height() > getResources().getDisplayMetrics().heightPixels * 0.16f) break;
+        }
+
+        // Find only the checkable control alongside this label, avoiding
+        // unrelated controls elsewhere on the page or behind a popup.
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
+        AccessibilityNodeInfo closest = null;
+        int closestDistance = Integer.MAX_VALUE;
+        int width = getResources().getDisplayMetrics().widthPixels;
+        int height = getResources().getDisplayMetrics().heightPixels;
+        while (!queue.isEmpty()) {
+            AccessibilityNodeInfo node = queue.removeFirst();
+            if (node.isVisibleToUser() && node.isCheckable()) {
+                Rect bounds = new Rect();
+                node.getBoundsInScreen(bounds);
+                int vertical = Math.abs(bounds.centerY() - labelBounds.centerY());
+                int horizontal = bounds.centerX() < labelBounds.left
+                        ? labelBounds.left - bounds.centerX()
+                        : Math.max(0, bounds.centerX() - labelBounds.right);
+                if (!bounds.isEmpty() && vertical < height * 0.035f
+                        && horizontal < width * 0.18f && horizontal + vertical < closestDistance) {
+                    closest = node;
+                    closestDistance = horizontal + vertical;
+                }
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                AccessibilityNodeInfo child = node.getChild(i);
+                if (child != null) queue.add(child);
+            }
+        }
+        return closest;
     }
 
     private AccessibilityNodeInfo findLoginButton(AccessibilityNodeInfo root) {
@@ -733,8 +1577,21 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void succeed(String message) {
         if (!running) return;
+        endHumanVerification();
+        if (!runAccounts.isEmpty()) {
+            accountSuccessCount++;
+            accountResults.add((accountIndex + 1) + "번째 성공");
+            if (accountIndex + 1 < runAccounts.size()) {
+                accountIndex++;
+                beginLogoutForNextAccount(true);
+            } else {
+                finishBatch(null);
+            }
+            return;
+        }
         running = false;
         handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
                 .putString("last_result", message)
                 .putLong("last_result_at", System.currentTimeMillis())
@@ -745,13 +1602,53 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void fail(String message) {
         if (!running) return;
+        endHumanVerification();
+        if (!runAccounts.isEmpty()) {
+            if (stage == STAGE_LOGOUT) {
+                finishBatch("계정 전환 중단: " + message);
+                return;
+            }
+            accountResults.add((accountIndex + 1) + "번째 실패: " + message);
+            if (accountIndex + 1 < runAccounts.size()) {
+                accountIndex++;
+                beginLogoutForNextAccount();
+            } else {
+                finishBatch(null);
+            }
+            return;
+        }
         running = false;
         handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
         getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
                 .putString("last_result", message)
                 .putLong("last_result_at", System.currentTimeMillis())
                 .apply();
         Notifier.show(this, "신세계 자동 출석 실패", message);
+        finishVisualRun();
+    }
+
+    private void finishBatch(String interruption) {
+        running = false;
+        handler.removeCallbacks(processRunnable);
+        handler.removeCallbacks(timeoutRunnable);
+        StringBuilder result = new StringBuilder();
+        result.append(runAccounts.size()).append("개 계정 중 ")
+                .append(accountSuccessCount).append("개 출석 성공");
+        if (interruption != null) result.append(". ").append(interruption);
+        for (String accountResult : accountResults) {
+            if (accountResult.contains("실패")) result.append(". ").append(accountResult);
+        }
+        String message = result.toString();
+        getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
+                .putString("last_result", message)
+                .putLong("last_result_at", System.currentTimeMillis())
+                .apply();
+        Notifier.show(this,
+                interruption == null && accountSuccessCount == runAccounts.size()
+                        ? "모든 계정 출석 완료" : "계정별 출석 결과 확인",
+                message);
+        runAccounts = new ArrayList<>();
         finishVisualRun();
     }
 

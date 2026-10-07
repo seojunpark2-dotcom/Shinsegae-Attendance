@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">신세계 자동 출석</string>
-    <string name="accessibility_description">예약 시각에 신세계백화점 앱의 리워드 캘린더를 탐색하여 출석을 실행합니다. 사용자가 입력한 신세계 로그인 정보는 기기에 암호화해 저장할 수 있습니다. 기기 잠금 비밀번호와 인증번호는 저장하지 않습니다.</string>
+    <string name="accessibility_description">예약 시각에 신세계백화점 앱의 로그인, 로그아웃과 리워드 캘린더 출석을 저장된 계정 순서대로 실행합니다. 사용자가 입력한 로그인 정보는 기기에 암호화해 저장합니다. 기기 잠금 비밀번호와 인증번호는 저장하지 않습니다.</string>
 </resources>
 
