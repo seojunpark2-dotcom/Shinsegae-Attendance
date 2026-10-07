@@ -556,13 +556,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("전체메뉴에서 ‘참여한 이벤트’ 버튼을 찾지 못했습니다.");
                 return;
             }
-            // Retry only while home is still visible, never toggle a menu
+            // Retry on the logged-in page itself, never toggle a menu
             // that is already open or swipe a home promotional banner.
             boolean homeVisible = findVisibleContains(root, "MY SHINSEGAE") != null
                     || (findVisibleExact(root, "온라인쇼핑") != null
                         && findVisibleExact(root, "백화점") != null);
+            boolean myPageVisible = findVisibleContains(root, "나의 신세계") != null
+                    && findVisibleContains(root, "안녕하세요") != null;
             if (!menuVisible && (stage == STAGE_HOME
-                    || (homeVisible && attendanceMenuAttempts % 4 == 0))) {
+                    || ((homeVisible || myPageVisible) && attendanceMenuAttempts % 4 == 0))) {
                 openCalendarMenu(root);
                 stage = STAGE_ATTENDANCE_MENU;
                 scheduleProcess(600L);
@@ -1013,14 +1015,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             boolean myPageVisible = contains(root, "나의 신세계")
                     && contains(root, "안녕하세요");
             if (fields == null && !prompt && (homeVisible || myPageVisible)) {
-                if (myPageVisible && !homeVisible) {
-                    AccessibilityNodeInfo home = findVisibleExact(root, "홈");
-                    if (home != null) clickNodeOrCenter(home);
-                    else tap(0.63f, 0.918f);
-                }
-                stage = STAGE_HOME;
-                stageReadyAt = SystemClock.uptimeMillis() + 350L;
-                scheduleProcess(350L);
+                // Keep the post-login screen in place. Its bottom-right menu
+                // opens all-menu directly; going home first loses this control.
+                stage = STAGE_ATTENDANCE_MENU;
+                attendanceMenuAttempts = 1;
+                openCalendarMenu(root);
+                scheduleProcess(450L);
                 return true;
             }
             if (++loginWaitAttempts > 41) {
