@@ -39,12 +39,13 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private static final long SHORT_WAIT_MS = 400L;
     private static final long RESULT_WAIT_MS = 650L;
     private static final int STAGE_HOME = 0;
-    private static final int STAGE_WALLET = 1;
+    private static final int STAGE_ATTENDANCE_MENU = 1;
     private static final int STAGE_DETAIL = 2;
     private static final int STAGE_RESULT = 3;
     private static final int STAGE_LOGIN = 4;
     private static final int STAGE_LOGOUT = 5;
     private static final int STAGE_OPEN_LOGIN = 6;
+    private static final int STAGE_PARTICIPATED_EVENTS = 7;
     private static final long ACCOUNT_TIMEOUT_MS = 120000L;
     private static final long HUMAN_VERIFICATION_TIMEOUT_MS = 10 * 60 * 1000L;
     private static AttendanceAccessibilityService instance;
@@ -57,8 +58,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private String previousPackageName;
     private String lastForegroundPackageName;
     private boolean running;
-    private int carouselAttempts;
-    private int walletEntryAttempts;
+    private int attendanceMenuAttempts;
+    private int eventListAttempts;
+    private int eventListScrolls;
+    private long eventListOpenedAt;
     private int detailAttempts;
     private int detailLoadAttempts;
     private boolean targetLaunchRequested;
@@ -234,8 +237,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         running = true;
         runStartedAt = SystemClock.uptimeMillis();
         accountStartedAt = runStartedAt;
-        carouselAttempts = 0;
-        walletEntryAttempts = 0;
+        attendanceMenuAttempts = 0;
+        eventListAttempts = 0;
+        eventListScrolls = 0;
+        eventListOpenedAt = 0L;
         detailAttempts = 0;
         detailLoadAttempts = 0;
         targetLaunchRequested = false;
@@ -302,8 +307,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return "2분 동안 신세계 앱 로그인을 완료하지 못했습니다. 로그인 화면 또는 추가 인증을 확인해주세요.";
             case STAGE_OPEN_LOGIN:
                 return "2분 동안 메인 화면의 사람 아이콘에서 로그인 화면을 열지 못했습니다.";
-            case STAGE_WALLET:
-                return "2분 동안 리워드 캘린더 카드를 열지 못했습니다. 앱 화면이나 로딩 상태를 확인해주세요.";
+            case STAGE_ATTENDANCE_MENU:
+                return "전체메뉴에서 참여한 이벤트 메뉴를 열지 못했습니다.";
+            case STAGE_PARTICIPATED_EVENTS:
+                return "참여한 이벤트 목록에서 리워드 캘린더를 열지 못했습니다.";
             case STAGE_DETAIL:
                 return "2분 동안 리워드 캘린더 상세 화면에서 참여 버튼을 찾지 못했습니다.";
             case STAGE_RESULT:
@@ -483,9 +490,14 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             scheduleProcess(SHORT_WAIT_MS);
             return;
         }
+        if (stage == STAGE_HOME || stage == STAGE_ATTENDANCE_MENU
+                || stage == STAGE_PARTICIPATED_EVENTS) {
+            handleAttendanceEntry(root);
+            return;
+        }
         if (stage == STAGE_DETAIL
-                && !contains(root, "이벤트 기간")
-                && (contains(root, "내 리워드") || contains(root, "신백리워드"))) {
+                && findVisibleAnyContains(root, "리워드 받으러 가기", "응모하러가기", "응모하러 가기") == null
+                && !contains(root, "이벤트 기간")) {
             if (detailLoadAttempts++ < 10) {
                 scheduleProcess(400L);
             } else {
@@ -493,7 +505,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
             return;
         }
-        if (stage == STAGE_DETAIL || contains(root, "이벤트 기간")) {
+        if (stage == STAGE_DETAIL) {
             stage = STAGE_DETAIL;
             AccessibilityNodeInfo cta = findVisibleAnyContains(
                     root,
@@ -523,84 +535,70 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
 
-        // A requested wallet stage is not proof that the R tap succeeded.
-        // Never swipe the home banner while that screen remains visible.
-        boolean homeVisible = findVisibleContains(root, "MY SHINSEGAE") != null
-                || (findVisibleExact(root, "온라인쇼핑") != null
-                    && findVisibleExact(root, "백화점") != null);
-        if (homeVisible) {
-            if (++walletEntryAttempts > 6) {
-                fail("메인 화면의 R 버튼으로 월렛 메뉴에 진입하지 못했습니다. 메인 화면에서는 스크롤하지 않았습니다.");
-                return;
-            }
-            stage = STAGE_WALLET;
-            tapWalletEntry(root);
-            scheduleProcess(750L);
-            return;
-        }
-
-        if (stage == STAGE_WALLET || contains(root, "내 리워드") || contains(root, "신백리워드")) {
-            stage = STAGE_WALLET;
-            AccessibilityNodeInfo calendar = findVisibleContains(root, "신세계 리워드 캘린더");
-            if (calendar != null) {
-                stage = STAGE_DETAIL;
-                stageReadyAt = SystemClock.uptimeMillis() + 450L;
-                detailAttempts = 0;
-                detailLoadAttempts = 0;
-                clickNodeOrCenter(calendar);
-                scheduleProcess(450L);
-                return;
-            }
-            if (carouselAttempts++ < 8) {
-                swipe(0.78f, 0.68f, 0.20f, 0.68f, 250);
-                scheduleProcess(SHORT_WAIT_MS);
-            } else {
-                fail("리워드 캘린더 카드를 찾지 못했습니다. 앱 화면이 변경되었을 수 있습니다.");
-            }
-            return;
-        }
-
         scheduleProcess(SHORT_WAIT_MS);
     }
 
-    private void tapWalletEntry(AccessibilityNodeInfo root) {
-        int width = getResources().getDisplayMetrics().widthPixels;
-        int height = getResources().getDisplayMetrics().heightPixels;
-        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
-        queue.add(root);
-        while (!queue.isEmpty()) {
-            AccessibilityNodeInfo node = queue.removeFirst();
-            String label = ((node.getText() == null ? "" : node.getText().toString())
-                    + " " + (node.getContentDescription() == null ? "" : node.getContentDescription().toString())).trim();
-            Rect bounds = new Rect();
-            node.getBoundsInScreen(bounds);
-            boolean walletLabel = label.matches("(?i)R(?:\\s+R)?") || label.contains("월렛")
-                    || label.contains("리워드") || label.toLowerCase(java.util.Locale.ROOT).contains("wallet");
-            if (walletLabel && node.isVisibleToUser() && !bounds.isEmpty()
-                    && bounds.centerX() > width * 0.17f && bounds.centerX() < width * 0.36f
-                    && bounds.centerY() > height * 0.80f && bounds.centerY() < height * 0.95f) {
-                // Tap the icon itself; clicking an ancestor can hit the whole
-                // navigation container rather than its R control.
-                tapPixels(bounds.centerX(), bounds.centerY());
+    private void handleAttendanceEntry(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo participated = findVisibleAnyContains(root, "참여한 이벤트", "참여한이벤트");
+        boolean menuVisible = findVisibleContains(root, "검색어를 입력하세요") != null
+                || findVisibleExact(root, "나의 선택 점포") != null;
+        if (stage != STAGE_PARTICIPATED_EVENTS) {
+            if (participated != null) {
+                clickNodeOrCenter(participated);
+                stage = STAGE_PARTICIPATED_EVENTS;
+                eventListOpenedAt = SystemClock.uptimeMillis();
+                eventListAttempts = 0;
+                eventListScrolls = 0;
+                scheduleProcess(600L);
                 return;
             }
-            for (int i = 0; i < node.getChildCount(); i++) {
-                AccessibilityNodeInfo child = node.getChild(i);
-                if (child != null) queue.add(child);
-            }
-        }
-        // Unlabeled R icon: align with the exposed middle home navigation tab.
-        AccessibilityNodeInfo middle = findVisibleContains(root, "MY SHINSEGAE");
-        if (middle != null) {
-            Rect bounds = new Rect();
-            middle.getBoundsInScreen(bounds);
-            if (!bounds.isEmpty() && bounds.centerY() > height * 0.80f
-                    && bounds.centerY() < height * 0.95f) {
-                tapPixels(Math.round(width * 0.271f), bounds.centerY());
+            if (++attendanceMenuAttempts > 20) {
+                fail("전체메뉴에서 ‘참여한 이벤트’ 버튼을 찾지 못했습니다.");
                 return;
             }
+            // Retry only while home is still visible, never toggle a menu
+            // that is already open or swipe a home promotional banner.
+            boolean homeVisible = findVisibleContains(root, "MY SHINSEGAE") != null
+                    || (findVisibleExact(root, "온라인쇼핑") != null
+                        && findVisibleExact(root, "백화점") != null);
+            if (!menuVisible && (stage == STAGE_HOME
+                    || (homeVisible && attendanceMenuAttempts % 4 == 0))) {
+                openCalendarMenu(root);
+                stage = STAGE_ATTENDANCE_MENU;
+                scheduleProcess(600L);
+            } else {
+                scheduleProcess(SHORT_WAIT_MS);
+            }
+            return;
         }
-        tap(0.271f, 0.892f);
+        // Wait for the event list rather than re-clicking the menu's old node.
+        if (menuVisible) {
+            if (++eventListAttempts > 20) fail("‘참여한 이벤트’를 누른 뒤 목록이 열리지 않았습니다.");
+            else scheduleProcess(SHORT_WAIT_MS);
+            return;
+        }
+        AccessibilityNodeInfo calendar = findVisibleContains(root, "리워드 캘린더");
+        if (calendar != null) {
+            clickNodeOrCenter(calendar);
+            stage = STAGE_DETAIL;
+            detailAttempts = 0;
+            detailLoadAttempts = 0;
+            scheduleProcess(600L);
+            return;
+        }
+        if (++eventListAttempts > 30) {
+            fail("참여한 이벤트 목록에서 ‘리워드 캘린더’ 항목을 찾지 못했습니다.");
+            return;
+        }
+        boolean listVisible = findVisibleAnyContains(root, "참여한 이벤트", "참여한이벤트") != null;
+        if (listVisible && SystemClock.uptimeMillis() - eventListOpenedAt > 1600L
+                && eventListScrolls < 6) {
+            eventListScrolls++;
+            swipe(0.50f, 0.80f, 0.50f, 0.38f, 240L);
+            scheduleProcess(500L);
+        } else {
+            scheduleProcess(SHORT_WAIT_MS);
+        }
     }
 
     private boolean handleAdvertisement(AccessibilityNodeInfo root) {
@@ -887,8 +885,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         verificationVibrated = false;
         humanVerificationComplete = false;
         stage = STAGE_OPEN_LOGIN;
-        carouselAttempts = 0;
-        walletEntryAttempts = 0;
+        attendanceMenuAttempts = 0;
+        eventListAttempts = 0;
+        eventListScrolls = 0;
+        eventListOpenedAt = 0L;
         detailAttempts = 0;
         detailLoadAttempts = 0;
         foregroundMissingSince = 0L;
