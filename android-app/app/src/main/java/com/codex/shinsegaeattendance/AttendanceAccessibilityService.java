@@ -101,6 +101,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int logoutBackAttempts;
     private int logoutStep;
     private int logoutScrolls;
+    private boolean initialLogoutPhase;
+    private boolean initialAutoLoginTogglePending;
     private boolean accountLogoutClicked;
     private boolean accountLogoutConfirmed;
     private int accountLogoutRetries;
@@ -213,6 +215,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             finalAccount = LoginCredentials.readFinalAccount(this);
             finalLoginPhase = false;
             finalLogoutPhase = false;
+            initialLogoutPhase = false;
+            initialAutoLoginTogglePending = false;
             finalLogoutClicked = false;
             standaloneSuccessMessage = null;
         } catch (Exception error) {
@@ -552,9 +556,27 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     // Only skip a pending delay when the next expected screen is already
-    // visible. Never accelerate logout gestures, CAPTCHA, or retries here.
+    // visible. CAPTCHA, scrolling gestures and logout retries keep their waits.
     private boolean canAdvanceEarly(AccessibilityNodeInfo root) {
         if (awaitingHumanVerification) return false;
+        if (stage == STAGE_LOGOUT && initialLogoutPhase) {
+            if (accountLogoutClicked) {
+                return !accountLogoutConfirmed && findVisibleContains(root, "로그아웃") != null
+                        && (findVisibleExact(root, "예") != null || findVisibleExact(root, "확인") != null);
+            }
+            boolean menu = findVisibleContains(root, "검색어를 입력하세요") != null
+                    || findVisibleExact(root, "나의 선택 점포") != null;
+            boolean settings = findVisibleExact(root, "환경설정") != null
+                    && findVisibleExact(root, "로그아웃") != null;
+            if (logoutStep == 2 && (settings || (menu && logoutScrolls == 0 && logoutAttempts == 0))) return true;
+            if (logoutStep == 3 && settings) return true;
+            if (logoutStep == 4 && initialAutoLoginTogglePending && settings) {
+                AccessibilityNodeInfo label = findVisibleExact(root, "자동 로그인 사용");
+                AccessibilityNodeInfo toggle = label == null ? null : findCheckableBeside(root, label);
+                return toggle != null && !toggle.isChecked();
+            }
+            return false;
+        }
         if (stage == STAGE_LOGIN && loginSubmitted) {
             boolean loggedIn = contains(root, "MY SHINSEGAE")
                     || (contains(root, "온라인쇼핑") && contains(root, "백화점"))
@@ -784,10 +806,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
             if (autoLoginSwitch.isChecked()) {
+                if (initialLogoutPhase) initialAutoLoginTogglePending = true;
                 clickNodeOrCenter(autoLoginSwitch);
                 scheduleProcess(500L);
                 return;
             }
+            initialAutoLoginTogglePending = false;
             AccessibilityNodeInfo logout = findVisibleExact(root, "로그아웃");
             if (logout == null) {
                 if (++logoutAttempts > 10) fail("환경설정에서 로그아웃 버튼을 찾지 못했습니다.");
@@ -986,6 +1010,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginLoginForCurrentAccount() {
+        initialLogoutPhase = false;
+        initialAutoLoginTogglePending = false;
         endHumanVerification();
         captchaResubmitted = false;
         verificationVibrated = false;
@@ -1020,8 +1046,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         // My page (for example from yesterday's last account) needs logout.
         if (!loginAttemptedThisRun
                 && contains(root, "나의 신세계") && contains(root, "안녕하세요")) {
-            if (accountIndex == 0 && !finalLoginPhase) beginLogoutForNextAccount();
-            else fail("이전 계정의 로그인 상태가 남아 있습니다. 다음 계정은 시작하지 않았습니다.");
+            if (accountIndex == 0 && !finalLoginPhase) {
+                initialLogoutPhase = true;
+                beginLogoutForNextAccount(true);
+            } else fail("이전 계정의 로그인 상태가 남아 있습니다. 다음 계정은 시작하지 않았습니다.");
             return;
         }
         // Some app builds show a logout confirmation dialog. Complete the

@@ -4,10 +4,12 @@
 
 ## 다운로드
 
-- [APK v4.10.6 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.6.apk)
-- [ZIP v4.10.6 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.6.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v4.10.7 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.7.apk)
+- [ZIP v4.10.7 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.7.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요. 이 버전은 `log` 브랜치에서 배포하며 `main`은 변경하지 않습니다.
+
+`v4.10.7`은 시작 시 로그인된 마이페이지에서 전체 메뉴로 바로 이동하고, 자동 로그인 해제 상태를 확인해 로그아웃합니다. 화면이 준비되면 일부 대기를 건너뜁니다. 실제 기기 검증이 필요합니다.
 
 `v4.10.6`은 로그인 결과, 메뉴·캘린더 및 출석 결과 화면이 확인되면 남은 고정 대기를 건너뛰어 빠르게 진행합니다. 로그아웃과 직접 인증 대기는 유지합니다. 실제 기기 검증이 필요합니다.
 
