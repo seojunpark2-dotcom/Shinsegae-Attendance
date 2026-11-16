@@ -101,6 +101,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int logoutBackAttempts;
     private int logoutStep;
     private int logoutScrolls;
+    private boolean accountLogoutClicked;
+    private boolean accountLogoutConfirmed;
+    private int accountLogoutRetries;
     private boolean adOptOutTapped;
     private int adToggleAttempts;
     private int adCloseAttempts;
@@ -668,6 +671,38 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
         }
+        if (!finalLogoutPhase && accountLogoutClicked) {
+            AccessibilityNodeInfo confirm = null;
+            if (findVisibleContains(root, "로그아웃") != null) {
+                confirm = findVisibleExact(root, "예");
+                if (confirm == null) confirm = findVisibleExact(root, "확인");
+            }
+            if (confirm != null && !accountLogoutConfirmed) {
+                clickNodeOrCenter(confirm);
+                accountLogoutConfirmed = true;
+                scheduleProcess(650L);
+                return;
+            }
+            boolean stillLoggedInSettings = findVisibleExact(root, "환경설정") != null
+                    && findVisibleExact(root, "로그아웃") != null;
+            if (stillLoggedInSettings && !accountLogoutConfirmed) {
+                if (++accountLogoutRetries > 3) {
+                    fail("로그아웃 버튼을 눌렀지만 화면이 바뀌지 않았습니다. 다음 계정은 시작하지 않았습니다.");
+                    return;
+                }
+                clickNodeOrCenter(findVisibleExact(root, "로그아웃"));
+                scheduleProcess(650L);
+                return;
+            }
+            if (stillLoggedInSettings) {
+                if (++accountLogoutRetries > 8) {
+                    fail("로그아웃 확인 후에도 설정 화면이 유지됩니다. 다음 계정은 시작하지 않았습니다.");
+                } else scheduleProcess(500L);
+                return;
+            }
+            beginLoginForCurrentAccount();
+            return;
+        }
         boolean loginForm = findLoginFields(root) != null;
         boolean loginPrompt = findVisibleContains(root, "로그인이 필요한 서비스") != null;
         boolean loginVisible = findVisibleExact(root, "로그인") != null;
@@ -731,7 +766,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 logoutAttempts = 0;
                 scheduleProcess(650L);
             } else {
-                beginLoginForCurrentAccount();
+                accountLogoutClicked = true;
+                accountLogoutConfirmed = false;
+                accountLogoutRetries = 0;
+                scheduleProcess(650L);
             }
             return;
         }
@@ -946,9 +984,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void handleOpenLogin(AccessibilityNodeInfo root) {
         // Start directly at the profile login entry. Only an actually logged-in
         // My page (for example from yesterday's last account) needs logout.
-        if (accountIndex == 0 && !loginAttemptedThisRun
+        if (!loginAttemptedThisRun
                 && contains(root, "나의 신세계") && contains(root, "안녕하세요")) {
-            beginLogoutForNextAccount();
+            if (accountIndex == 0 && !finalLoginPhase) beginLogoutForNextAccount();
+            else fail("이전 계정의 로그인 상태가 남아 있습니다. 다음 계정은 시작하지 않았습니다.");
             return;
         }
         // Some app builds show a logout confirmation dialog. Complete the
@@ -1005,6 +1044,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         logoutAttempts = 0;
         logoutBackAttempts = 0;
         logoutScrolls = 0;
+        accountLogoutClicked = false;
+        accountLogoutConfirmed = false;
+        accountLogoutRetries = 0;
         stageReadyAt = SystemClock.uptimeMillis() + 500L;
         accountStartedAt = SystemClock.uptimeMillis();
         scheduleProcess(fromCalendar ? 0L : 500L);
