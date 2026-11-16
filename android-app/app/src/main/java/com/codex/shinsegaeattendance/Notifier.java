@@ -47,7 +47,7 @@ public final class Notifier {
         if (vibrator == null || !vibrator.hasVibrator()) return;
         VibrationEffect effect = VibrationEffect.createOneShot(1500L, VibrationEffect.DEFAULT_AMPLITUDE);
         AudioAttributes attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                .setUsage(AudioAttributes.USAGE_ALARM)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
         vibrator.vibrate(effect, attributes);
     }

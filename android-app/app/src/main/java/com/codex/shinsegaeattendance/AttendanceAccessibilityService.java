@@ -33,11 +33,11 @@ import java.util.List;
 
 public class AttendanceAccessibilityService extends AccessibilityService {
     private static final String TARGET_PACKAGE = "com.F1.ShinSG";
-    private static final long EVENT_DEBOUNCE_MS = 120L;
+    private static final long EVENT_DEBOUNCE_MS = 80L;
     private static final long STARTUP_WAIT_MS = 300L;
     private static final long FOREGROUND_TIMEOUT_MS = 12000L;
-    private static final long SHORT_WAIT_MS = 400L;
-    private static final long RESULT_WAIT_MS = 650L;
+    private static final long SHORT_WAIT_MS = 300L;
+    private static final long RESULT_WAIT_MS = 400L;
     private static final int STAGE_HOME = 0;
     private static final int STAGE_ATTENDANCE_MENU = 1;
     private static final int STAGE_DETAIL = 2;
@@ -562,10 +562,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 eventListOpenedAt = SystemClock.uptimeMillis();
                 eventListAttempts = 0;
                 eventListScrolls = 0;
-                scheduleProcess(600L);
+                scheduleProcess(450L);
                 return;
             }
-            if (++attendanceMenuAttempts > 20) {
+            if (++attendanceMenuAttempts > 27) {
                 fail("전체메뉴에서 ‘참여한 이벤트’ 버튼을 찾지 못했습니다.");
                 return;
             }
@@ -580,7 +580,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                     || ((homeVisible || myPageVisible) && attendanceMenuAttempts % 4 == 0))) {
                 openCalendarMenu(root);
                 stage = STAGE_ATTENDANCE_MENU;
-                scheduleProcess(600L);
+                scheduleProcess(450L);
             } else {
                 scheduleProcess(SHORT_WAIT_MS);
             }
@@ -588,7 +588,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
         // Wait for the event list rather than re-clicking the menu's old node.
         if (menuVisible) {
-            if (++eventListAttempts > 20) fail("‘참여한 이벤트’를 누른 뒤 목록이 열리지 않았습니다.");
+            if (++eventListAttempts > 27) fail("‘참여한 이벤트’를 누른 뒤 목록이 열리지 않았습니다.");
             else scheduleProcess(SHORT_WAIT_MS);
             return;
         }
@@ -598,10 +598,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             stage = STAGE_DETAIL;
             detailAttempts = 0;
             detailLoadAttempts = 0;
-            scheduleProcess(600L);
+            scheduleProcess(450L);
             return;
         }
-        if (++eventListAttempts > 30) {
+        if (++eventListAttempts > 40) {
             fail("참여한 이벤트 목록에서 ‘리워드 캘린더’ 항목을 찾지 못했습니다.");
             return;
         }
@@ -1101,7 +1101,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 scheduleProcess(450L);
                 return true;
             }
-            if (++loginWaitAttempts > 41) {
+            if (++loginWaitAttempts > 55) {
                 fail("로그인 버튼을 누른 뒤에도 로그인 화면이 유지됩니다. 계정 정보 또는 추가 인증을 확인해주세요.");
                 return true;
             }
@@ -1124,7 +1124,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                     return true;
                 }
             }
-            if (++loginWaitAttempts > 41) {
+            if (++loginWaitAttempts > 55) {
                 fail("로그인이 필요하다는 팝업에서 ‘예’를 누른 뒤에도 로그인 화면이 열리지 않았습니다.");
                 return true;
             }
@@ -1183,7 +1183,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return true;
         }
 
-        if (++loginWaitAttempts > 41) {
+        if (++loginWaitAttempts > 55) {
             fail("로그인이 필요한 화면은 확인했지만 아이디·비밀번호 입력칸을 찾지 못했습니다. 직접 로그인해주세요.");
             return true;
         }

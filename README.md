@@ -4,10 +4,12 @@
 
 ## 다운로드
 
-- [APK v4.10.4 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.4.apk)
-- [ZIP v4.10.4 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.4.zip) — 브라우저가 APK를 차단할 때 사용
+- [APK v4.10.5 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.5.apk)
+- [ZIP v4.10.5 바로 다운로드](https://github.com/seojunpark2-dotcom/Shinsegae-Attendance/raw/refs/heads/log/releases/shinsegae-auto-attendance-v4.10.5.zip) — 브라우저가 APK를 차단할 때 사용
 
 저장소가 비공개인 경우 GitHub에 로그인한 상태에서 링크를 열어야 합니다. ZIP을 받은 경우 압축을 풀고 안의 APK를 설치하세요. 이 버전은 `log` 브랜치에서 배포하며 `main`은 변경하지 않습니다.
+
+`v4.10.5`는 인증 대기 진동을 알람 용도로 요청해 무음·소리 모드에서도 진동하도록 개선하고, 화면 탐색과 출석 결과 확인 간격을 단축합니다. 기기 진동 설정과 방해 금지 정책에 따라 진동이 제한될 수 있으며 실제 기기 검증이 필요합니다.
 
 `v4.10.4`는 계정 전환 시 로그아웃 확인 팝업을 처리하고 설정 화면이 바뀌지 않으면 재시도합니다. 이전 계정의 로그인 상태가 남아 있으면 다음 계정 출석을 중단합니다. 실제 기기 검증이 필요합니다.
 
