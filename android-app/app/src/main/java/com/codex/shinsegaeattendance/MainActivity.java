@@ -232,7 +232,7 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "출석 후 로그인 설정을 삭제했습니다.", Toast.LENGTH_SHORT).show();
         });
         finalCard.addView(clearFinal, spaced(0, 8, 0, 0));
-        finalCard.addView(text("설정하면 모든 계정 처리를 마친 뒤 이 계정으로 로그인합니다. 설정하지 않으면 기존 방식으로 종료합니다.", 12, false, MUTED), spaced(0, 10, 0, 0));
+        finalCard.addView(text("설정하면 모든 계정 처리를 마친 뒤 이 계정으로 로그인합니다. 설정하지 않으면 마지막에 로그아웃하고 종료합니다.", 12, false, MUTED), spaced(0, 10, 0, 0));
         root.addView(finalCard, spaced(0, 0, 0, 24));
 
         root.addView(section("시작 전 확인"), spaced(0, 0, 0, 10));

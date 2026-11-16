@@ -91,6 +91,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private final List<String> accountResults = new ArrayList<>();
     private LoginCredentials.Account finalAccount;
     private boolean finalLoginPhase;
+    private boolean finalLogoutPhase;
+    private boolean finalLogoutClicked;
+    private String standaloneSuccessMessage;
     private int accountIndex;
     private int accountSuccessCount;
     private long accountStartedAt;
@@ -206,6 +209,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             runAccounts = LoginCredentials.readAccounts(this);
             finalAccount = LoginCredentials.readFinalAccount(this);
             finalLoginPhase = false;
+            finalLogoutPhase = false;
+            finalLogoutClicked = false;
+            standaloneSuccessMessage = null;
         } catch (Exception error) {
             Notifier.show(this, "자동 출석 실행 불가", "저장된 계정 정보를 읽지 못했습니다. 앱에서 계정 목록을 확인해주세요.");
             return;
@@ -651,12 +657,27 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         // The user-provided screens show: calendar bottom-right menu -> all menu (scroll
         // to bottom) -> 설정 -> 환경설정 -> 로그아웃, then immediately begin
         // the next login flow without a separate logout verification pass.
+        if (finalLogoutPhase && finalLogoutClicked && findVisibleContains(root, "로그아웃") != null) {
+            AccessibilityNodeInfo confirm = findVisibleExact(root, "예");
+            if (confirm == null) confirm = findVisibleExact(root, "확인");
+            if (confirm != null) {
+                clickNodeOrCenter(confirm);
+                scheduleProcess(650L);
+                return;
+            }
+        }
         boolean loginForm = findLoginFields(root) != null;
         boolean loginPrompt = findVisibleContains(root, "로그인이 필요한 서비스") != null;
         boolean loginVisible = findVisibleExact(root, "로그인") != null;
         if (loginForm || loginPrompt || (loginVisible && findVisibleExact(root, "로그아웃") == null
                 && findVisibleExact(root, "환경설정") != null)) {
-            beginLoginForCurrentAccount();
+            if (finalLogoutPhase) finishAfterFinalLogout();
+            else beginLoginForCurrentAccount();
+            return;
+        }
+        if (finalLogoutPhase && finalLogoutClicked) {
+            if (++logoutAttempts > 20) fail("로그아웃 완료 상태를 확인하지 못했습니다.");
+            else scheduleProcess(500L);
             return;
         }
 
@@ -704,7 +725,13 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 return;
             }
             clickNodeOrCenter(logout);
-            beginLoginForCurrentAccount();
+            if (finalLogoutPhase) {
+                finalLogoutClicked = true;
+                logoutAttempts = 0;
+                scheduleProcess(650L);
+            } else {
+                beginLoginForCurrentAccount();
+            }
             return;
         }
 
@@ -1597,10 +1624,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             }
             return;
         }
-        if (finalAccount != null) {
-            beginFinalLoginOrFinish(true);
-            return;
-        }
+        standaloneSuccessMessage = message;
+        beginFinalLoginOrFinish(true);
+        return;
+    }
+
+    private void finishStandaloneSuccess(String message) {
         running = false;
         handler.removeCallbacks(processRunnable);
         handler.removeCallbacks(timeoutRunnable);
@@ -1615,6 +1644,19 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void fail(String message) {
         if (!running) return;
         endHumanVerification();
+        if (finalLogoutPhase) {
+            if (runAccounts.isEmpty()) {
+                running = false;
+                handler.removeCallbacks(processRunnable);
+                handler.removeCallbacks(timeoutRunnable);
+                String result = "출석 후 로그아웃 실패: " + message;
+                getSharedPreferences(ScheduleManager.PREFS, MODE_PRIVATE).edit()
+                        .putString("last_result", result).putLong("last_result_at", System.currentTimeMillis()).apply();
+                Notifier.show(this, "로그아웃 결과 확인", result);
+                finishVisualRun();
+            } else finishBatch("출석 후 로그아웃 실패: " + message);
+            return;
+        }
         if (finalLoginPhase) {
             finishBatch("출석 후 로그인 실패: " + message);
             return;
@@ -1645,12 +1687,18 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     }
 
     private void beginFinalLoginOrFinish(boolean fromCalendar) {
-        if (finalAccount == null) {
-            finishBatch(null);
-            return;
-        }
-        finalLoginPhase = true;
+        finalLogoutPhase = finalAccount == null;
+        finalLogoutClicked = false;
+        finalLoginPhase = finalAccount != null;
         beginLogoutForNextAccount(fromCalendar);
+    }
+
+    private void finishAfterFinalLogout() {
+        if (runAccounts.isEmpty() && standaloneSuccessMessage != null) {
+            finishStandaloneSuccess(standaloneSuccessMessage + " · 로그아웃 완료");
+        } else {
+            finishBatch(null);
+        }
     }
 
     private void finishBatch(String interruption) {
@@ -1660,6 +1708,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         StringBuilder result = new StringBuilder();
         result.append(runAccounts.size()).append("개 계정 중 ")
                 .append(accountSuccessCount).append("개 출석 성공");
+        if (finalLogoutPhase && interruption == null) result.append(". 출석 후 로그아웃 완료");
         if (finalLoginPhase && interruption == null) result.append(". 출석 후 지정 계정 로그인 완료");
         if (interruption != null) result.append(". ").append(interruption);
         for (String accountResult : accountResults) {
