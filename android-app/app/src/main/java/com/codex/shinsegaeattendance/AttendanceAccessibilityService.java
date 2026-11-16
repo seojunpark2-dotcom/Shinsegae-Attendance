@@ -457,7 +457,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         long waitForStage = stageReadyAt - SystemClock.uptimeMillis();
-        if (waitForStage > 0) {
+        if (waitForStage > 0 && !canAdvanceEarly(root)) {
             scheduleProcess(waitForStage);
             return;
         }
@@ -549,6 +549,40 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         scheduleProcess(SHORT_WAIT_MS);
+    }
+
+    // Only skip a pending delay when the next expected screen is already
+    // visible. Never accelerate logout gestures, CAPTCHA, or retries here.
+    private boolean canAdvanceEarly(AccessibilityNodeInfo root) {
+        if (awaitingHumanVerification) return false;
+        if (stage == STAGE_LOGIN && loginSubmitted) {
+            boolean loggedIn = contains(root, "MY SHINSEGAE")
+                    || (contains(root, "온라인쇼핑") && contains(root, "백화점"))
+                    || (contains(root, "나의 신세계") && contains(root, "안녕하세요"));
+            return loggedIn && findLoginFields(root) == null
+                    && findVisibleContains(root, "로그인이 필요한 서비스") == null;
+        }
+        if (stage == STAGE_LOGIN && loginPromptClicked && !loginFieldsFilled) {
+            return findLoginFields(root) != null
+                    && findVisibleContains(root, "로그인이 필요한 서비스") == null;
+        }
+        if (stage == STAGE_ATTENDANCE_MENU) {
+            return findVisibleAnyContains(root, "참여한 이벤트", "참여한이벤트") != null;
+        }
+        if (stage == STAGE_PARTICIPATED_EVENTS) {
+            boolean menuVisible = findVisibleContains(root, "검색어를 입력하세요") != null
+                    || findVisibleExact(root, "나의 선택 점포") != null;
+            return !menuVisible && findVisibleContains(root, "리워드 캘린더") != null;
+        }
+        if (stage == STAGE_DETAIL) {
+            return findVisibleAnyContains(root, "리워드 받으러 가기", "응모하러가기", "응모하러 가기") != null
+                    || contains(root, "이벤트 기간");
+        }
+        if (stage == STAGE_RESULT) {
+            return contains(root, "오늘 참여 완료") || contains(root, "R 당첨")
+                    || (contains(root, "나의 출석 현황") && contains(root, "누적 출석"));
+        }
+        return false;
     }
 
     private void handleAttendanceEntry(AccessibilityNodeInfo root) {
