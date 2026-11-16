@@ -1092,9 +1092,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
         if (loginFieldsFilled) {
             // Setting the password often rebuilds the WebView. Find the
-            // enabled submit button and confirm auto-login is still off on
-            // the refreshed accessibility tree before submitting.
-            if (ensureLoginAutoOff(root, true)) return true;
+            // enabled submit button. Attendance accounts also recheck that
+            // auto-login is off; the final account keeps the shown state.
+            if (!finalLoginPhase && ensureLoginAutoOff(root, true)) return true;
             AccessibilityNodeInfo loginButton = findLoginButton(root, loginPasswordCenterY);
             if (loginButton != null) {
                 if (!loginButton.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -1119,7 +1119,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         }
 
         if (form) {
-            if (ensureLoginAutoOff(root, false)) return true;
+            if (!finalLoginPhase && ensureLoginAutoOff(root, false)) return true;
             LoginCredentials.Account account = finalLoginPhase ? finalAccount : runAccounts.get(accountIndex);
             if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
                 fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
