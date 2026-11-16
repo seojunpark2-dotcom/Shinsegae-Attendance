@@ -662,7 +662,9 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             if (confirm == null) confirm = findVisibleExact(root, "확인");
             if (confirm != null) {
                 clickNodeOrCenter(confirm);
-                scheduleProcess(650L);
+                handler.postDelayed(() -> {
+                    if (running && finalLogoutPhase) finishAfterFinalLogout();
+                }, 350L);
                 return;
             }
         }
@@ -676,8 +678,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             return;
         }
         if (finalLogoutPhase && finalLogoutClicked) {
-            if (++logoutAttempts > 20) fail("로그아웃 완료 상태를 확인하지 못했습니다.");
-            else scheduleProcess(500L);
+            finishAfterFinalLogout();
             return;
         }
 
@@ -1695,7 +1696,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
     private void finishAfterFinalLogout() {
         if (runAccounts.isEmpty() && standaloneSuccessMessage != null) {
-            finishStandaloneSuccess(standaloneSuccessMessage + " · 로그아웃 완료");
+            finishStandaloneSuccess(standaloneSuccessMessage + " · 로그아웃 요청");
         } else {
             finishBatch(null);
         }
@@ -1708,7 +1709,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         StringBuilder result = new StringBuilder();
         result.append(runAccounts.size()).append("개 계정 중 ")
                 .append(accountSuccessCount).append("개 출석 성공");
-        if (finalLogoutPhase && interruption == null) result.append(". 출석 후 로그아웃 완료");
+        if (finalLogoutPhase && interruption == null) result.append(". 출석 후 로그아웃 요청");
         if (finalLoginPhase && interruption == null) result.append(". 출석 후 지정 계정 로그인 완료");
         if (interruption != null) result.append(". ").append(interruption);
         for (String accountResult : accountResults) {
