@@ -56,6 +56,9 @@ public class MainActivity extends Activity {
     private LinearLayout accountList;
     private EditText accountUsernameInput;
     private EditText accountPasswordInput;
+    private TextView finalAccountText;
+    private EditText finalUsernameInput;
+    private EditText finalPasswordInput;
     private Switch autoSwitch;
     private Switch reminderSwitch;
     private Switch privacySwitch;
@@ -201,6 +204,37 @@ public class MainActivity extends Activity {
         accountsCard.addView(accountNote, spaced(0, 10, 0, 0));
         root.addView(accountsCard, spaced(0, 0, 0, 24));
 
+        root.addView(section("출석 후 로그인 계정"), spaced(0, 0, 0, 10));
+        LinearLayout finalCard = card(Color.WHITE, 20, 18);
+        finalAccountText = text("", 13, false, MUTED);
+        finalCard.addView(finalAccountText, spaced(0, 0, 0, 10));
+        finalUsernameInput = new EditText(this);
+        finalUsernameInput.setHint("마지막으로 로그인할 아이디");
+        finalUsernameInput.setSingleLine(true);
+        finalUsernameInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        finalUsernameInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        styleAccountInput(finalUsernameInput);
+        finalCard.addView(finalUsernameInput, matchWrap());
+        finalPasswordInput = new EditText(this);
+        finalPasswordInput.setHint("비밀번호");
+        finalPasswordInput.setSingleLine(true);
+        finalPasswordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        finalPasswordInput.setFilters(new InputFilter[]{new InputFilter.LengthFilter(256)});
+        styleAccountInput(finalPasswordInput);
+        finalCard.addView(finalPasswordInput, spaced(0, 9, 0, 10));
+        Button saveFinal = action("출석 후 로그인 계정 저장", true, false);
+        saveFinal.setOnClickListener(v -> saveFinalAccount());
+        finalCard.addView(saveFinal, matchWrap());
+        Button clearFinal = action("출석 후 로그인 설정 삭제", false, false);
+        clearFinal.setOnClickListener(v -> {
+            LoginCredentials.clearFinalAccount(this);
+            refreshFinalAccount();
+            Toast.makeText(this, "출석 후 로그인 설정을 삭제했습니다.", Toast.LENGTH_SHORT).show();
+        });
+        finalCard.addView(clearFinal, spaced(0, 8, 0, 0));
+        finalCard.addView(text("설정하면 모든 계정 처리를 마친 뒤 이 계정으로 로그인합니다. 설정하지 않으면 기존 방식으로 종료합니다.", 12, false, MUTED), spaced(0, 10, 0, 0));
+        root.addView(finalCard, spaced(0, 0, 0, 24));
+
         root.addView(section("시작 전 확인"), spaced(0, 0, 0, 10));
         LinearLayout permissionCard = card(Color.WHITE, 20, 18);
         accessibilityState = permissionRow(permissionCard, "접근성 권한", "접근성 설정", () ->
@@ -258,6 +292,33 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "계정은 최대 " + LoginCredentials.MAX_ACCOUNTS + "개까지 저장할 수 있습니다.", Toast.LENGTH_LONG).show();
         } catch (Exception error) {
             Toast.makeText(this, "계정을 저장하지 못했습니다.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveFinalAccount() {
+        String username = finalUsernameInput.getText().toString().trim();
+        String password = finalPasswordInput.getText().toString();
+        if (username.isEmpty() || password.isEmpty()) {
+            Toast.makeText(this, "아이디와 비밀번호를 모두 입력해주세요.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            LoginCredentials.writeFinalAccount(this, username, password);
+            finalUsernameInput.setText("");
+            finalPasswordInput.setText("");
+            refreshFinalAccount();
+            Toast.makeText(this, "출석 후 로그인 계정을 저장했습니다.", Toast.LENGTH_SHORT).show();
+        } catch (Exception error) {
+            Toast.makeText(this, "계정을 저장하지 못했습니다.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void refreshFinalAccount() {
+        try {
+            LoginCredentials.Account account = LoginCredentials.readFinalAccount(this);
+            finalAccountText.setText(account == null ? "설정되지 않음" : "설정된 계정: " + account.username);
+        } catch (Exception error) {
+            finalAccountText.setText("출석 후 로그인 계정을 읽지 못했습니다.");
         }
     }
 
@@ -356,6 +417,7 @@ public class MainActivity extends Activity {
         accessibilityState.setText(AttendanceAccessibilityService.isEnabled(this) ? "연결됨" : "설정 필요");
         alarmState.setText(ScheduleManager.canScheduleExact(this) ? "허용됨" : "설정 필요");
         refreshAccounts();
+        refreshFinalAccount();
     }
 
     private void requestNotificationPermission() {

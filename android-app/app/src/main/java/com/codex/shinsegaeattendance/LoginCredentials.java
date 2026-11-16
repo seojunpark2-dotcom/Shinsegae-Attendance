@@ -25,6 +25,7 @@ final class LoginCredentials {
     private static final String PREFS = "encrypted_login_credentials";
     private static final String LEGACY_VALUE = "ciphertext";
     private static final String ACCOUNTS_VALUE = "accounts_ciphertext";
+    private static final String FINAL_VALUE = "final_account_ciphertext";
     private static final String KEY_ALIAS = "shinsegae_login_aes_v1";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int IV_LENGTH = 12;
@@ -65,6 +66,24 @@ final class LoginCredentials {
         writeAccounts(context, accounts);
         prefs.edit().remove(LEGACY_VALUE).apply();
         return accounts;
+    }
+
+    static Account readFinalAccount(Context context) throws Exception {
+        String stored = preferences(context).getString(FINAL_VALUE, "");
+        if (stored.isEmpty()) return null;
+        JSONObject item = new JSONObject(decrypt(stored));
+        return new Account(item.getString("username"), item.getString("password"));
+    }
+
+    static void writeFinalAccount(Context context, String username, String password) throws Exception {
+        JSONObject item = new JSONObject();
+        item.put("username", username);
+        item.put("password", password);
+        preferences(context).edit().putString(FINAL_VALUE, encrypt(item.toString())).apply();
+    }
+
+    static void clearFinalAccount(Context context) {
+        preferences(context).edit().remove(FINAL_VALUE).apply();
     }
 
     static boolean addOrUpdate(Context context, String username, String password) throws Exception {

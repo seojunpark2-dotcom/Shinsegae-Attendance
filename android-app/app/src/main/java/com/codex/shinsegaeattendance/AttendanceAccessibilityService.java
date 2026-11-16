@@ -89,6 +89,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private int loginBackAttempts;
     private List<LoginCredentials.Account> runAccounts = new ArrayList<>();
     private final List<String> accountResults = new ArrayList<>();
+    private LoginCredentials.Account finalAccount;
+    private boolean finalLoginPhase;
     private int accountIndex;
     private int accountSuccessCount;
     private long accountStartedAt;
@@ -202,6 +204,8 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         try {
             runAccounts = LoginCredentials.readAccounts(this);
+            finalAccount = LoginCredentials.readFinalAccount(this);
+            finalLoginPhase = false;
         } catch (Exception error) {
             Notifier.show(this, "자동 출석 실행 불가", "저장된 계정 정보를 읽지 못했습니다. 앱에서 계정 목록을 확인해주세요.");
             return;
@@ -233,7 +237,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 PowerManager.FULL_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "ShinsegaeAttendance:Run");
         wakeLock.setReferenceCounted(false);
-        wakeLock.acquire(Math.max(3, runAccounts.size() * 3) * 60 * 1000L);
+        wakeLock.acquire(Math.max(3, (runAccounts.size() + (finalAccount == null ? 0 : 1)) * 3) * 60 * 1000L);
         running = true;
         runStartedAt = SystemClock.uptimeMillis();
         accountStartedAt = runStartedAt;
@@ -990,7 +994,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 fail("로그인 시도 후에도 로그인 화면이 다시 나타났습니다. 계정 정보나 추가 인증을 확인해주세요.");
                 return true;
             }
-            if (runAccounts.isEmpty()) {
+            if (runAccounts.isEmpty() && !finalLoginPhase) {
                 fail("신세계 앱 로그인이 필요하지만 저장된 계정이 없습니다. 앱에서 계정을 추가해주세요.");
                 return true;
             }
@@ -1015,6 +1019,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
             boolean myPageVisible = contains(root, "나의 신세계")
                     && contains(root, "안녕하세요");
             if (fields == null && !prompt && (homeVisible || myPageVisible)) {
+                if (finalLoginPhase) {
+                    finishBatch(null);
+                    return true;
+                }
                 // Keep the post-login screen in place. Its bottom-right menu
                 // opens all-menu directly; going home first loses this control.
                 stage = STAGE_ATTENDANCE_MENU;
@@ -1084,7 +1092,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
 
         if (form) {
             if (ensureLoginAutoOff(root, false)) return true;
-            LoginCredentials.Account account = runAccounts.get(accountIndex);
+            LoginCredentials.Account account = finalLoginPhase ? finalAccount : runAccounts.get(accountIndex);
             if (account == null || account.username.isEmpty() || account.password.isEmpty()) {
                 fail("저장된 로그인 정보가 비어 있습니다. 앱에서 다시 저장해주세요.");
                 return true;
@@ -1183,7 +1191,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         verificationCurtainSuspended = curtainView != null;
         removePrivacyCurtain();
         if (wakeLock != null) wakeLock.acquire(HUMAN_VERIFICATION_TIMEOUT_MS
-                + Math.max(3, runAccounts.size() * 3) * 60000L);
+                + Math.max(3, (runAccounts.size() + (finalAccount == null ? 0 : 1)) * 3) * 60000L);
     }
 
     private AccessibilityNodeInfo findRobotControl(AccessibilityNodeInfo root) {
@@ -1585,8 +1593,12 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 accountIndex++;
                 beginLogoutForNextAccount(true);
             } else {
-                finishBatch(null);
+                beginFinalLoginOrFinish(true);
             }
+            return;
+        }
+        if (finalAccount != null) {
+            beginFinalLoginOrFinish(true);
             return;
         }
         running = false;
@@ -1603,6 +1615,10 @@ public class AttendanceAccessibilityService extends AccessibilityService {
     private void fail(String message) {
         if (!running) return;
         endHumanVerification();
+        if (finalLoginPhase) {
+            finishBatch("출석 후 로그인 실패: " + message);
+            return;
+        }
         if (!runAccounts.isEmpty()) {
             if (stage == STAGE_LOGOUT) {
                 finishBatch("계정 전환 중단: " + message);
@@ -1613,7 +1629,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
                 accountIndex++;
                 beginLogoutForNextAccount();
             } else {
-                finishBatch(null);
+                beginFinalLoginOrFinish(false);
             }
             return;
         }
@@ -1628,6 +1644,15 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         finishVisualRun();
     }
 
+    private void beginFinalLoginOrFinish(boolean fromCalendar) {
+        if (finalAccount == null) {
+            finishBatch(null);
+            return;
+        }
+        finalLoginPhase = true;
+        beginLogoutForNextAccount(fromCalendar);
+    }
+
     private void finishBatch(String interruption) {
         running = false;
         handler.removeCallbacks(processRunnable);
@@ -1635,6 +1660,7 @@ public class AttendanceAccessibilityService extends AccessibilityService {
         StringBuilder result = new StringBuilder();
         result.append(runAccounts.size()).append("개 계정 중 ")
                 .append(accountSuccessCount).append("개 출석 성공");
+        if (finalLoginPhase && interruption == null) result.append(". 출석 후 지정 계정 로그인 완료");
         if (interruption != null) result.append(". ").append(interruption);
         for (String accountResult : accountResults) {
             if (accountResult.contains("실패")) result.append(". ").append(accountResult);
